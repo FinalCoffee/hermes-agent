@@ -24,6 +24,7 @@ from gateway.platforms.base_image_sniff import _looks_like_image
 from gateway.platforms.base_media_flags import pad_inline_flags
 from gateway.runtime_footer import footer_onto_photo_caption, send_footer_unless_captioned
 from gateway.platforms.session_model import _SessionModelSettingsMixin
+from gateway.suggested_replies import final_message_id, split_suggestions
 from utils import normalize_proxy_url, unlink_files_older_than
 from agent.i18n import t
 from agent.retry_utils import jittered_backoff
@@ -1545,6 +1546,7 @@ class _ExtractedResponse:
     local_files: list
     force_document_attachments: bool
     pre_extract: str
+    suggestions: tuple = ()
 
 
 _PLAINTEXT_GATEWAY_RESTART_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -2651,6 +2653,12 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
         AI Cards) close the message on it and set ``REQUIRES_EDIT_FINALIZE`` so it's routed even
         when content is unchanged."""
         return SendResult(success=False, error="Not supported")
+
+    async def attach_suggested_replies(self, source: "SessionSource", message_id: Optional[str],
+                                       options: tuple[str, ...]) -> bool:
+        """Buttons on a delivered final. Platforms without buttons do nothing; a platform that has them
+        retires the chat's previous keyboard even when *options* is empty, so one stays live per chat."""
+        return False
 
     async def delete_message(self, chat_id: str, message_id: str) -> bool:
         """Delete a sent message; True on success (platforms without a deletion API return False and
@@ -4238,7 +4246,8 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
 
     async def _send_final_text(
         self, event: MessageEvent, session_key: str, text_content: str, metadata: dict[str, Any],
-        is_ephemeral_response: bool, ephemeral_ttl: int, record_delivery: Callable) -> None:
+        is_ephemeral_response: bool, ephemeral_ttl: int, record_delivery: Callable,
+        suggestions: tuple[str, ...] = ()) -> None:
         """Normal-lane final: the ledger bracket plus the message-id owner's ephemeral delete."""
         result, delivery_adapter = await self.send_final_ledgered(
             event, session_key, text_content, metadata,
@@ -4246,28 +4255,12 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
         record_delivery(result)
         if ephemeral_ttl and ephemeral_ttl > 0 and result.success and result.message_id:
             delivery_adapter._schedule_ephemeral_delete(event.source.chat_id, result.message_id, ephemeral_ttl)
+        if result.success and not is_ephemeral_response:  # an auto-deleting reply has no lasting buttons
+            await delivery_adapter.attach_suggested_replies(event.source, final_message_id(result), suggestions)
 
     async def _notify_turn_error(self, event: MessageEvent, e: BaseException) -> Optional[dict]:
-        """Tell the user a turn failed rather than leaving radio silence (last resort:
-        a failing notice is logged, never raised). Returns the thread metadata used."""
-        _thread_metadata = None
-        try:
-            _thread_metadata = _thread_metadata_for_event(event)
-            error_detail = str(e)[:300] if str(e) else t("gateway.notify.turn_error_no_details")
-            # Only the policy reads bind the routed profile; the send stays in the launch scope
-            # as before, so delivery bookkeeping keeps landing where boot-time recovery reads it.
-            with self._media_delivery_scope(event.source):
-                content = None if diagnostic_wake_muted(event) else self.warning_text(
-                    t("gateway.notify.turn_error_detailed", error_type=type(e).__name__, error_detail=error_detail),
-                    t("gateway.notify.turn_error"),
-                    logical_platform=event.source.platform, chat_id=event.source.chat_id, metadata=_thread_metadata)
-            if content is None:
-                return _thread_metadata
-            await self.send(chat_id=event.source.chat_id, content=content, metadata=_thread_metadata)
-        except Exception as notify_err:
-            logger.error(
-                "[%s] Failed to send error notification to user: %s", self.name, notify_err, exc_info=True)
-        return _thread_metadata
+        from gateway.platforms.base_turn_notice import notify_turn_error
+        return await notify_turn_error(self, event, e)
 
     async def _deliver_attachments(self, event: MessageEvent, extracted: _ExtractedResponse,
                                    metadata: dict[str, Any], *, anything_sent: bool,
@@ -4310,6 +4303,7 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
         dedup is bare-path only, off-loop, fail-open. An emptied non-empty response is recovered."""
         # Captured before extract_media strips it: images then go via send_document (no recompression).
         force_document = "[[as_document]]" in response
+        response, suggestions = split_suggestions(response)  # the model's footer is never reply text
         pre_extract = response
         # The handler's routed profile scope is gone by now; Docker MEDIA translation and the
         # bare-path validator infer the sandbox from the ACTIVE profile (#109024).
@@ -4351,7 +4345,8 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
                                len(pre_extract), event.source.chat_id)
                 text_content = _recovered
         return footer_onto_photo_caption(self, _ExtractedResponse(text_content=text_content, images=images, media_files=media_files,
-            local_files=local_files, force_document_attachments=force_document, pre_extract=pre_extract), _IMAGE_EXTS)  # #74547
+            local_files=local_files, force_document_attachments=force_document, pre_extract=pre_extract,
+            suggestions=suggestions), _IMAGE_EXTS)  # #74547
 
     async def _fire_post_delivery_callback(self, session_key: str, interrupt_event: asyncio.Event) -> None:
         """Run the one-shot post-delivery callback (bounded, errors swallowed). The generation is
@@ -4458,7 +4453,8 @@ class BasePlatformAdapter(_SessionModelSettingsMixin, ABC):
                 if text_content and not _tts_caption_delivered:
                     await self._send_final_text(
                         event, session_key, text_content, _final_thread_metadata,
-                        is_ephemeral_response, _ephemeral_ttl, _record_delivery)
+                        is_ephemeral_response, _ephemeral_ttl, _record_delivery,
+                        suggestions=extracted.suggestions)
                 await self._deliver_attachments(
                     event, extracted, _final_thread_metadata,
                     anything_sent=delivery_attempted or _tts_caption_delivered,

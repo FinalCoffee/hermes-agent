@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ Одобрено один раз"
       resolved_always: "🔒 Одобрять всегда"
       resolved_cancel: "❌ Отменено"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Отправлено: {option}"
+      expired: "Это предложение истекло."
+      not_yours: "Это предложение для того, кто задал вопрос."
     picker:
       expired_rerun: "Срок выбора истёк — выполните команду ещё раз."
       invalid_selection: "Недопустимый выбор."

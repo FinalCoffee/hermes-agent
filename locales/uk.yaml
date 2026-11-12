@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ Схвалено один раз"
       resolved_always: "🔒 Завжди схвалювати"
       resolved_cancel: "❌ Скасовано"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Надіслано: {option}"
+      expired: "Ця пропозиція застаріла."
+      not_yours: "Ця пропозиція для того, хто поставив запитання."
     picker:
       expired_rerun: "Час вибору минув — виконайте команду ще раз."
       invalid_selection: "Недійсний вибір."

@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional
 
 from gateway.delivery_ledger import flood_wait_seconds, is_flood_error
 from gateway.platforms.base import _SEND_RETRY_INLINE_WAIT_CAP_SECS
+from gateway.suggested_replies import split_suggestions
 
 logger = logging.getLogger("gateway.run")
 
@@ -145,3 +146,15 @@ async def edit_streamed_message(consumer: Any, source: Any, response: dict, cont
         return
     response["already_sent"] = True
     logger.info(*ok)
+
+
+async def attach_streamed_suggestions(consumer: Any, source: Any, final_text: str) -> None:
+    """Put the reply options of *final_text* on the streamed message, which carries the final (the last
+    chunk of a split). Runs for every confirmed final, with no options too: it retires the keyboard the
+    chat's previous final left behind."""
+    adapter = getattr(consumer, "adapter", None)
+    message_id = getattr(consumer, "message_id", None)
+    if adapter is None or not message_id or message_id == "__no_edit__":
+        return
+    _, options = split_suggestions(final_text or "")
+    await adapter.attach_suggested_replies(source, str(message_id), options)

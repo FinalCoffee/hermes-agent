@@ -240,6 +240,27 @@ The first word filters the catalog; everything after it is carried into the sent
 
 Results are only served to users who pass your gateway allowlist — unauthorized users get an empty list, so your installed skill catalog is not exposed to strangers (inline queries can be sent from any chat, even ones the bot is not in).
 
+### Suggested replies (tap-to-answer buttons)
+
+When enabled, the agent can end a reply with up to four short next-message options, and Telegram shows them as buttons under that reply. Tapping one sends its text as your next message, exactly as if you had typed it; the keyboard is then removed.
+
+```yaml
+telegram:
+  suggested_replies: true   # default: false
+```
+
+How it works:
+
+- The model writes the options on its own line, `[suggestions: A | B | C]`. Hermes removes every such line from the reply, wherever it sits, on every platform, so it is never shown as text. The buttons come from the last one, and only on Telegram and only when this key is on.
+- One keyboard is live per chat (per topic in a forum). Each new reply retires the previous keyboard, even when the new reply has no options, so an old button never stays on screen.
+- In a group, only the person whose message produced the options can use them. Anyone else gets "This suggestion is for the person who asked." and the keyboard stays usable for the asker. That tap counts as addressing the bot, so it works under `require_mention` too.
+- A tap sends that option as your next message. The keyboard then collapses to a single "✓ option" button, so the chat keeps a record of what you picked.
+- Taps are checked like any message: an unauthorized tapper gets a refusal, and a stale, repeated, copied or post-restart button answers "This suggestion has expired." and starts no turn. A keyboard expires 24 hours after it is sent. Keyboards are kept in memory only, so they do not survive a gateway restart.
+- With streaming on (the default), the footer is hidden while the reply is still arriving; the buttons appear on the finished message.
+- Keyboards are sent with the message, so a reply Telegram delivered as a rich message gets buttons only where Telegram accepts a keyboard on it. Where it does not, the reply is delivered as usual without buttons.
+
+Each option is cut to 40 characters, and a footer with fewer than two usable options is removed without buttons.
+
 ### Forum topics
 
 In Telegram supergroups with topics enabled, the command menu does **not** inherit from the global `AllGroupChats` scope — each forum supergroup needs its own chat-scoped command registration. Hermes handles this automatically: the first time a message arrives in a forum supergroup, the gateway lazily registers the same capped menu scoped to that chat (`BotCommandScopeChat`). This happens once per forum chat per gateway run and is transparent to users — the `/` menu appears in forum topics just like in regular groups, without any configuration.

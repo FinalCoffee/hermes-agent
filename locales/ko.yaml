@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ 한 번 승인됨"
       resolved_always: "🔒 항상 승인"
       resolved_cancel: "❌ 취소됨"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "전송됨: {option}"
+      expired: "이 제안은 만료되었습니다."
+      not_yours: "이 제안은 질문한 사람을 위한 것이에요."
     picker:
       expired_rerun: "선택창이 만료되었어요 — 명령을 다시 실행하세요."
       invalid_selection: "잘못된 선택이에요."

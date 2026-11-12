@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ Eenmalig goedgekeur"
       resolved_always: "🔒 Altyd goedkeur"
       resolved_cancel: "❌ Gekanselleer"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Gestuur: {option}"
+      expired: "Hierdie voorstel het verval."
+      not_yours: "Hierdie voorstel is vir die persoon wat die vraag gestel het."
     picker:
       expired_rerun: "Kieser het verval — voer die opdrag weer uit."
       invalid_selection: "Ongeldige keuse."

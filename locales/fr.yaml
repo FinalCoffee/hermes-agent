@@ -1425,6 +1425,11 @@ platform:
       resolved_once: "✅ Approuvé une fois"
       resolved_always: "🔒 Toujours approuver"
       resolved_cancel: "❌ Annulé"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Envoyé : {option}"
+      expired: "Cette suggestion a expiré."
+      not_yours: "Cette suggestion est pour la personne qui a posé la question."
     picker:
       expired_rerun: "Sélecteur expiré — relancez la commande."
       invalid_selection: "Sélection invalide."

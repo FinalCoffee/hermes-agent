@@ -41,6 +41,9 @@ class _FloodedChat:
     def _refuse(self) -> SendResult:
         return SendResult(success=False, error=f"flood_control:{self.flood_secs}", retry_after=self.flood_secs)
 
+    async def attach_suggested_replies(self, source, message_id, options):
+        return False  # the platform hook every adapter has; this chat has no buttons
+
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         self.calls.append(("send", content))
         if self._flooded():

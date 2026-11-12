@@ -497,7 +497,8 @@ async def deliver_response(adapter, event, session_key, response):
     results = []
     if extracted.text_content:
         await adapter._send_final_text(event, session_key, extracted.text_content,
-                                       metadata, ttl > 0, ttl, results.append)
+                                       metadata, ttl > 0, ttl, results.append,
+                                       suggestions=extracted.suggestions)
     await adapter._deliver_attachments(event, extracted, metadata, anything_sent=bool(results),
                                        record_delivery=results.append)
     return any(getattr(result, 'success', False) for result in results if result is not None)

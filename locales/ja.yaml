@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ 一度だけ承認"
       resolved_always: "🔒 常に承認"
       resolved_cancel: "❌ キャンセル済み"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "送信しました: {option}"
+      expired: "この候補は期限切れです。"
+      not_yours: "この候補は質問した本人のものです。"
     picker:
       expired_rerun: "選択の有効期限が切れました — コマンドをもう一度実行してください。"
       invalid_selection: "選択が無効です。"

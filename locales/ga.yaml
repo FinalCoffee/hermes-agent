@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ Ceadaithe uair amháin"
       resolved_always: "🔒 Ceadaithe i gcónaí"
       resolved_cancel: "❌ Cealaithe"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Seolta: {option}"
+      expired: "Tá an moladh seo imithe in éag."
+      not_yours: "Tá an moladh seo don duine a chuir an cheist."
     picker:
       expired_rerun: "Tá an roghnóir imithe in éag — rith an t-ordú arís."
       invalid_selection: "Roghnú neamhbhailí."

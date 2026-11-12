@@ -38,6 +38,7 @@ from gateway.session import (
 from gateway.session_context import scoped_turn_actor
 from gateway.session_transcript import TranscriptReadError
 from gateway.run_turn_bubble_cleanup import register_bubble_cleanup, settle_turn_senders
+from gateway.run_turn_teardown import cleanup_turn_tasks
 from gateway.turn_context import TurnContext
 from gateway.turn_lease import DEFAULT_LEASE_WAIT, TurnLeaseTimeoutError
 from hermes_constants import get_hermes_home_override
@@ -1817,59 +1818,16 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             }
         return merged
 
-    async def _run_agent_cleanup_turn_tasks(
-        self, turn_ctx: TurnContext, *, progress_task: Any, log_task: Any, interrupt_monitor: asyncio.Task,
-        _notify_task: asyncio.Task, tracking_task: asyncio.Task, stream_task: Any,
-    ) -> None:
-        """``finally`` half of a turn: cancel background tasks, flush stream, release the session slot."""
-        stream_consumer_holder, session_key = turn_ctx.stream_consumer_holder, turn_ctx.session_key
-        for task in (progress_task, log_task, interrupt_monitor, _notify_task):
-            if task:
-                task.cancel()
-
-        if stream_task:
-            # No stream consumer was created: nothing to flush, cancel instead of waiting out 5s.
-            if not (stream_consumer_holder and stream_consumer_holder[0] is not None):
-                stream_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await stream_task
-            else:
-                await self._await_stream_task(stream_task)
-
-        # Abort + bounded wait for streaming TTS: covers paths where normal finalisation was skipped.
-        _stts_finally = turn_ctx.streaming_tts_consumer_holder[0]
-        # See #60671.
-        if _stts_finally is not None and not _stts_finally.done:
-            _stts_finally.abort("cleanup")
-            with suppress(Exception):
-                await _stts_finally.wait_complete(timeout=2.0)
-
-        tracking_task.cancel()
-        if session_key:
-            # Release the slot only if this run's generation still owns it (/stop or /new may have
-            # installed its own state).
-            self._release_running_agent_state(session_key, run_generation=turn_ctx.run_generation)
-        if self._draining:
-            self._update_runtime_status("draining")
-
-        for task in (progress_task, log_task, interrupt_monitor, tracking_task, _notify_task):
-            if task:
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    # A background task that died of a real error must not abort the cleanup path.
-                    logger.debug("background turn task failed during cleanup", exc_info=True)
-
     async def _run_agent_mark_streamed_delivery(self, response: Any, turn_ctx: TurnContext) -> None:
         """Set ``response["already_sent"]`` when streaming already delivered the final reply.
 
         Never when the agent failed (unseen error), on "(empty)", or on a finite (`-z`, `chat -q`) turn:
         its viewer prints only the completion text, never the deltas (#139666). Both flags reflect call
         success, not content: a mismatch with the recorded turn-final payload never suppresses."""
-        from gateway.run_turn_final_reconcile import edit_streamed_message, owns_reconcilable_preview
+        from gateway.run_turn_final_reconcile import (
+            attach_streamed_suggestions, edit_streamed_message, owns_reconcilable_preview)
         from gateway.session_finite import finite_turn_required
+        from gateway.suggested_replies import strip_suggestions
         _sc, source, session_key = turn_ctx.stream_consumer_holder[0], turn_ctx.source, turn_ctx.session_key
         if not isinstance(response, dict) or response.get("failed") or finite_turn_required() is True:
             return
@@ -1917,7 +1875,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 )
             elif _sc_msg_id and _sc_msg_id != "__no_edit__" and getattr(_sc, "adapter", None) is not None:
                 await edit_streamed_message(
-                    _sc, source, response, _final, sk=_sk,
+                    _sc, source, response, strip_suggestions(_final), sk=_sk,
                     ok=("Reconciled stale streamed finalize for session %s: edited message %s with the complete response (#71643).", _sk, _sc_msg_id),
                     fail_result="Stale-finalize reconciliation edit failed for session %s (%s); sending complete response via normal final send.",
                     fail_exc="Stale-finalize reconciliation edit failed for session %s: %s; sending complete response via normal final send.",
@@ -1931,7 +1889,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # Transformed after streaming: edit the streamed message instead of sending a duplicate.
             if _sc.message_id:
                 await edit_streamed_message(
-                    _sc, source, response, response["final_response"], sk=_sk,
+                    _sc, source, response, strip_suggestions(response["final_response"]), sk=_sk,
                     ok=("Edited streamed message %s for session %s to include plugin-transformed content.", _sc.message_id, _sk),
                     fail_result="Transformed-final edit failed for session %s (%s); sending transformed response via normal final send.",
                     fail_exc="Failed to edit streamed message for session %s: %s",
@@ -1955,6 +1913,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 "possible duplicate send (see wecom ack-timeout RCA).",
                 _sk, _streamed, _previewed, _content_delivered, _transformed, len(_final),
             )
+        if response.get("already_sent") and not response.get("failed"):
+            await attach_streamed_suggestions(_sc, source, _final)  # buttons on the message that carries the final
 
     def _run_agent_bind_turn_wiring(
         self, turn_ctx: TurnContext, turn_runner: TurnRunner, source: SessionSource,
@@ -2153,8 +2113,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     turn_ctx, adapter, pending, pending_event, response, result, stream_task,
                 )
         finally:
-            await self._run_agent_cleanup_turn_tasks(
-                turn_ctx, progress_task=progress_task, log_task=log_task, interrupt_monitor=interrupt_monitor,
+            await cleanup_turn_tasks(
+                self, turn_ctx, progress_task=progress_task, log_task=log_task, interrupt_monitor=interrupt_monitor,
                 _notify_task=_notify_task, tracking_task=tracking_task, stream_task=stream_task,
             )
 

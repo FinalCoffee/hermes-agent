@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ Bir kez onaylandı"
       resolved_always: "🔒 Her zaman onayla"
       resolved_cancel: "❌ İptal edildi"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Gönderildi: {option}"
+      expired: "Bu öneri süresi doldu."
+      not_yours: "Bu öneri soruyu soran kişi içindir."
     picker:
       expired_rerun: "Seçici süresi doldu — komutu yeniden çalıştırın."
       invalid_selection: "Geçersiz seçim."

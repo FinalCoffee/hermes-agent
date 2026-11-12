@@ -1235,6 +1235,11 @@ platform:
       resolved_once: "✅ Egyszer jóváhagyva"
       resolved_always: "🔒 Mindig jóváhagy"
       resolved_cancel: "❌ Megszakítva"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Elküldve: {option}"
+      expired: "Ez a javaslat lejárt."
+      not_yours: "Ez a javaslat a kérdezőnek szól."
     picker:
       expired_rerun: "A választó lejárt — futtasd újra a parancsot."
       invalid_selection: "Érvénytelen választás."

@@ -37,6 +37,7 @@ from gateway.stream_consumer_fences import ensure_closed_code_fences
 from gateway.stream_consumer_transport import StreamTransportMixin
 from gateway.stream_consumer_fallback import StreamFallbackMixin
 from gateway.stream_consumer_think import StreamThinkFilterMixin
+from gateway.suggested_replies import hide_partial_suggestions, strip_suggestions
 
 logger = logging.getLogger("gateway.stream_consumer")
 
@@ -527,7 +528,7 @@ class GatewayStreamConsumer(StreamTransportMixin, StreamFallbackMixin, StreamThi
     async def _finalize_boundary_stream(self, _reason: str) -> bool:
         """Close the open native stream at a boundary; send() the pre-prompt text if that
         fails.  False only when both finalize and the fallback send failed."""
-        finalize_text = self._accumulated or self._boundary_placeholder
+        finalize_text = strip_suggestions(self._accumulated) or self._boundary_placeholder
         try:
             if await self._send_frame(finalize_text, finalize=True):
                 logger.debug("%s boundary: finalized stream (chat=%s, turn=%s)",
@@ -1056,5 +1057,5 @@ class GatewayStreamConsumer(StreamTransportMixin, StreamFallbackMixin, StreamThi
         around it, so interim frames stay prefix-stable. A silence marker closing the reply on its own
         line is dropped (``strip_trailing_silence_marker``); a bare marker is left for the silence check.
         """
-        return _strip_trailing_silence_marker(
-            strip_image_tags_for_display(_BasePlatformAdapter.strip_media_directives_for_display(text)))
+        return _strip_trailing_silence_marker(hide_partial_suggestions(
+            strip_image_tags_for_display(_BasePlatformAdapter.strip_media_directives_for_display(text))))

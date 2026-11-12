@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ 已批准一次"
       resolved_always: "🔒 永遠批准"
       resolved_cancel: "❌ 已取消"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "已傳送：{option}"
+      expired: "此建議已過期。"
+      not_yours: "這個建議是給提問的人的。"
     picker:
       expired_rerun: "選擇器已逾期 — 請重新執行指令。"
       invalid_selection: "選擇無效。"

@@ -1271,6 +1271,11 @@ platform:
       resolved_once: "✅ Approved once"
       resolved_always: "🔒 Always approve"
       resolved_cancel: "❌ Cancelled"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "Sent: {option}"
+      expired: "This suggestion has expired."
+      not_yours: "This suggestion is for the person who asked."
     # Model / choice pickers (MarkdownV2 bodies; the adapter adds the markup around these).
     picker:
       expired_rerun: "Picker expired — run the command again."

@@ -1218,6 +1218,11 @@ platform:
       resolved_once: "✅ تمت الموافقة مرة"
       resolved_always: "🔒 الموافقة دائمًا"
       resolved_cancel: "❌ أُلغي"
+    # Suggested replies: a tap on a footer option (toast cut at 200 chars by the adapter).
+    suggestions:
+      sent: "أُرسل: {option}"
+      expired: "انتهت صلاحية هذا الاقتراح."
+      not_yours: "هذا الاقتراح لمن طرح السؤال."
     picker:
       expired_rerun: "انتهت صلاحية المنتقي — شغّل الأمر مرة أخرى."
       invalid_selection: "اختيار غير صالح."

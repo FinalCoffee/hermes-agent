@@ -1,0 +1,37 @@
+name: accomy_travel
+version: 0.1.0
+description: "Accomy AI Travel: trip-planning tools (hotels and flights via the TMC open platform, event tickets via Seat Unique, places and weather via Google Maps Platform, public-web research via Brave) plus the travel-assistant persona, scope policy and suggested-reply instructions. Search and pricing only: nothing here books, pays or cancels."
+author: Accomy
+kind: standalone
+provides_tools:
+  - find_places
+  - get_place_details
+  - get_weather
+  - search_hotels
+  - get_hotel_details
+  - get_hotel_rooms
+  - search_airports
+  - search_flights
+  - get_flight_offer
+  - search_events
+  - get_event_tickets
+  - research_web
+provides_hooks:
+  - pre_llm_call
+  - transform_llm_output
+requires_env:
+  - name: TMC_APP_KEY
+    description: "TMC open-platform App Key (X-OP-App-Key) for hotel and flight search"
+    secret: true
+  - name: TMC_APP_SECRET
+    description: "TMC open-platform App Secret (HMAC-SHA256 request signing)"
+    secret: true
+  - name: SEATUNIQUE_API_TOKEN
+    description: "Seat Unique Trade API bearer token for event and hospitality tickets"
+    secret: true
+  - name: GOOGLE_MAPS_SERVER_API_KEY
+    description: "Google Maps Platform server key (Places API New, Geocoding, Weather)"
+    secret: true
+  - name: BRAVE_SEARCH_API_KEY
+    description: "Brave Search API key (LLM Context endpoint) for public-web research"
+    secret: true

@@ -1,0 +1,64 @@
+{
+  "data": [
+    {
+      "id": "007bfe5b-aaf8-4ece-a105-df7e9429a6e1",
+      "name": "Arsenal v Manchester City Community Shield 23/24",
+      "description": "<p>,</p>",
+      "date_and_time": "2027-06-17T14:00:00.000+01:00",
+      "available_until": "2027-06-16T14:00:00.000+01:00",
+      "location": {
+        "id": "e1e53a41-27b4-471a-aa78-bb8aca832314",
+        "name": "Wembley Stadium",
+        "description": "Wembley Stadium",
+        "street": "Wembley Way",
+        "city": "London",
+        "region": "",
+        "country": "United Kingdom",
+        "zip_code": "HA9 0WS",
+        "latitude": "51.562457",
+        "longitude": "-0.279654"
+      },
+      "performer": {
+        "id": "44f5b2a2-c17f-45ca-bb10-dd8522053a5e",
+        "name": "Wembley Stadium Football ",
+        "category": "Sport",
+        "subcategory": "Football"
+      },
+      "tournament_name": null
+    },
+    {
+      "id": "1db66f64-d84d-4ed0-a819-53b1b83420fb",
+      "name": "Arsenal v Liverpool",
+      "description": "<p>.</p>",
+      "date_and_time": "2027-06-17T14:00:00.000+01:00",
+      "available_until": "2027-06-17T14:00:00.000+01:00",
+      "location": {
+        "id": "81ce8ee2-ceac-4be0-9281-ca87b72ad9f5",
+        "name": "Emirates Stadium",
+        "description": "",
+        "street": "Hornsey Rd",
+        "city": "London",
+        "region": "",
+        "country": "United Kingdom",
+        "zip_code": "N7 7AJ",
+        "latitude": "51.556316",
+        "longitude": "-0.111596"
+      },
+      "performer": {
+        "id": "9e46ee9b-16ce-45ce-bdc0-747b9bd9c621",
+        "name": "Arsenal Football Club",
+        "category": "Sport",
+        "subcategory": "Football"
+      },
+      "tournament_name": null
+    }
+  ],
+  "metadata": {
+    "total": 2,
+    "offset": 0,
+    "per_page": 200,
+    "current_page": 1,
+    "next_page": null,
+    "total_pages": 1
+  }
+}

@@ -1,0 +1,23 @@
+name: accomy
+version: 0.1.0
+description: "Accomy AI Travel: a Telegram travel-planning assistant that searches hotels, flights, events, places, weather and the public web. Search and pricing only; it cannot book, pay or cancel."
+author: Accomy
+license: proprietary
+env_requires:
+  - name: OPENAI_API_KEY
+    description: "API key for the model endpoint configured in config.yaml (providers.newapi)."
+  - name: TMC_APP_KEY
+    description: "TMC open-platform App Key (X-OP-App-Key) for hotel and flight search."
+  - name: TMC_APP_SECRET
+    description: "TMC open-platform App Secret used for HMAC-SHA256 request signing."
+  - name: SEATUNIQUE_API_TOKEN
+    description: "Seat Unique Trade API bearer token for event and hospitality tickets."
+  - name: GOOGLE_MAPS_SERVER_API_KEY
+    description: "Google Maps Platform server key for Places (New), Geocoding and Weather."
+  - name: BRAVE_SEARCH_API_KEY
+    description: "Brave Search API key (LLM Context endpoint) for public-web research."
+  - name: TELEGRAM_BOT_TOKEN
+    description: "Telegram Bot API token from @BotFather."
+  - name: TELEGRAM_ALLOWED_USERS
+    description: "Optional comma-separated Telegram numeric user IDs allowed to chat. Leave unset to keep the bot closed (see the plugin README)."
+    required: false

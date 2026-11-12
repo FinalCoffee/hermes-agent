@@ -1,0 +1,53 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": [
+  {
+   "cityCode": "TPE",
+   "cityNameEn": "Taipei",
+   "cityNameZh": "台北",
+   "cityNameTc": "台北",
+   "countryCode": "CN",
+   "countryNameEn": "China",
+   "countryNameZh": "中国",
+   "countryNameTc": "中國",
+   "isInternational": 1,
+   "airports": [
+    {
+     "id": 66107,
+     "airportCode": "TSA",
+     "airportNameEn": "Taipei Songshan Airport",
+     "airportNameZh": "台北松山机场",
+     "airportNameTc": "台北松山機場",
+     "cityCode": "TPE",
+     "cityNameEn": "Taipei",
+     "cityNameZh": "台北",
+     "cityNameTc": "台北",
+     "countryCode": "CN",
+     "countryNameEn": "China",
+     "countryNameZh": "中国",
+     "countryNameTc": "中國",
+     "isInternational": 1,
+     "isActive": 1
+    },
+    {
+     "id": 66336,
+     "airportCode": "TPE",
+     "airportNameEn": "Taiwan Taoyuan International Airport",
+     "airportNameZh": "台湾桃园国际机场",
+     "airportNameTc": "台灣桃園國際機場",
+     "cityCode": "TPE",
+     "cityNameEn": "Taipei",
+     "cityNameZh": "台北",
+     "cityNameTc": "台北",
+     "countryCode": "CN",
+     "countryNameEn": "China",
+     "countryNameZh": "中国",
+     "countryNameTc": "中國",
+     "isInternational": 1,
+     "isActive": 1
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "places": [
+  {
+   "id": "ChIJT8uMzZwIAWARnGzsARCjnrY",
+   "formattedAddress": "日本〒604-8055 京都府京都市中京區 Higashiuoyacho",
+   "location": {
+    "latitude": 35.0050258,
+    "longitude": 135.764723
+   },
+   "rating": 4.3,
+   "googleMapsUri": "https://maps.google.com/?cid=13159134450370243740&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+   "userRatingCount": 55553,
+   "displayName": {
+    "text": "錦市場",
+    "languageCode": "zh-TW"
+   },
+   "editorialSummary": {
+    "text": "擁有 400 年歷史的知名市場，匯集了許多販售各式日本美食的攤販。",
+    "languageCode": "zh-TW"
+   }
+  },
+  {
+   "id": "ChIJC5srCtQHAWARLy9qkFmHaxA",
+   "formattedAddress": "541 Nijōjōchō, Nakagyo Ward, Kyoto, 604-8301日本",
+   "location": {
+    "latitude": 35.0140379,
+    "longitude": 135.7484258
+   },
+   "rating": 4.4,
+   "googleMapsUri": "https://maps.google.com/?cid=1183188145859604271&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+   "userRatingCount": 43889,
+   "displayName": {
+    "text": "二條城",
+    "languageCode": "zh-TW"
+   },
+   "primaryTypeDisplayName": {
+    "text": "城堡",
+    "languageCode": "zh-TW"
+   },
+   "currentOpeningHours": {
+    "openNow": false
+   },
+   "editorialSummary": {
+    "text": "建於 1603 年的扁柏木造城堡，曾為德川家康的居所，坐擁廣闊的庭園。",
+    "languageCode": "zh-TW"
+   }
+  }
+ ]
+}

@@ -1,0 +1,624 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": {
+  "flight": [
+   {
+    "journeys": [
+     {
+      "journeyId": "2d297b4b21529d2defc95b6a2afdcd90",
+      "origin": "HKG",
+      "originName": "Hong Kong",
+      "originDate": "2026-12-12",
+      "originTime": "01:40",
+      "destination": "SIN",
+      "destinationName": "Singapore",
+      "destinationDate": "2026-12-12",
+      "destinationTime": "05:40",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "4h",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "CX0659"
+      ],
+      "marketingFlightNumberList": [
+       "CX0659"
+      ],
+      "airSegmentList": [
+       "20261212-HKG-SIN-CX0659"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 1,
+      "priceKey": "SBeKo-Q5zGn9nJiYQZ1JTmqo4TST4KRrJ9GvLDnQn5xdhTj6ssvxJ1i-NX5eEA80",
+      "productType": "2",
+      "cabin": [
+       "Y"
+      ],
+      "cabinClass": [
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 763,
+      "totalTax": 88,
+      "totalServiceFee": 0,
+      "totalSalePrice": 851,
+      "currency": "USD",
+      "ticketingAirline": "CX",
+      "ticketTime": 60,
+      "maxCount": 9,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null
+      },
+      "priceDetail": [
+       {
+        "passengerType": "adult",
+        "fareBasisCode": "YQ21HKAO",
+        "price": 763,
+        "tax": 88,
+        "serviceFee": 0,
+        "salePrice": 851,
+        "number": 1,
+        "taxDetail": null,
+        "farePriceType": "0",
+        "accountCode": ""
+       }
+      ],
+      "baggageRules": [
+       {
+        "segmentId": "20261212-HKG-SIN-CX0659",
+        "passengerType": "adult",
+        "portable": {
+         "number": 1,
+         "weight": 7,
+         "unit": "KG",
+         "size": "<=115CM",
+         "description": "1 carry-on baggage 7KG"
+        },
+        "checkIn": {
+         "number": 1,
+         "weight": 23,
+         "unit": "KG",
+         "size": "<=158CM",
+         "description": "1 checked baggage 23KG"
+        }
+       }
+      ],
+      "refundRules": [
+       {
+        "rules": {
+         ">0": 202,
+         "<0": 202
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "refundOriginalText": null,
+        "segmentId": "20261212-HKG-SIN-CX0659"
+       }
+      ],
+      "changeRules": [
+       {
+        "rules": {
+         ">0": 202,
+         "<0": 202
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "changeOriginalText": null,
+        "segmentId": "20261212-HKG-SIN-CX0659"
+       }
+      ],
+      "avgPrice": 851
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   },
+   {
+    "journeys": [
+     {
+      "journeyId": "439511fc86971b4cc61231d70ac5b9ef",
+      "origin": "HKG",
+      "originName": "Hong Kong",
+      "originDate": "2026-12-12",
+      "originTime": "07:50",
+      "destination": "SIN",
+      "destinationName": "Singapore",
+      "destinationDate": "2026-12-12",
+      "destinationTime": "11:50",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "4h",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "CX0691"
+      ],
+      "marketingFlightNumberList": [
+       "CX0691"
+      ],
+      "airSegmentList": [
+       "20261212-HKG-SIN-CX0691"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 1,
+      "priceKey": "uDYt8PivCF82eMypQ3K2zWCnA3jSKchC3ZBVc6xZZ71PZM9uu-CJGjkVzBz1iQe-",
+      "productType": "2",
+      "cabin": [
+       "L"
+      ],
+      "cabinClass": [
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 366,
+      "totalTax": 88,
+      "totalServiceFee": 0,
+      "totalSalePrice": 454,
+      "currency": "USD",
+      "ticketingAirline": "CX",
+      "ticketTime": 60,
+      "maxCount": 9,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null
+      },
+      "priceDetail": [
+       {
+        "passengerType": "adult",
+        "fareBasisCode": "LR21WSAO",
+        "price": 366,
+        "tax": 88,
+        "serviceFee": 0,
+        "salePrice": 454,
+        "number": 1,
+        "taxDetail": null,
+        "farePriceType": "0",
+        "accountCode": ""
+       }
+      ],
+      "baggageRules": [
+       {
+        "segmentId": "20261212-HKG-SIN-CX0691",
+        "passengerType": "adult",
+        "portable": {
+         "number": 1,
+         "weight": 7,
+         "unit": "KG",
+         "size": "<=115CM",
+         "description": "1 carry-on baggage 7KG"
+        },
+        "checkIn": {
+         "number": 1,
+         "weight": 23,
+         "unit": "KG",
+         "size": "<=158CM",
+         "description": "1 checked baggage 23KG"
+        }
+       }
+      ],
+      "refundRules": [
+       {
+        "rules": {
+         ">0": 202,
+         "<0": 202
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "refundOriginalText": null,
+        "segmentId": "20261212-HKG-SIN-CX0691"
+       }
+      ],
+      "changeRules": [
+       {
+        "rules": {
+         ">0": 202,
+         "<0": 202
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 202,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "changeOriginalText": null,
+        "segmentId": "20261212-HKG-SIN-CX0691"
+       }
+      ],
+      "avgPrice": 454
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   },
+   {
+    "journeys": [
+     {
+      "journeyId": "18ff4a4e7424d1b81ad9e48eb4a44d2a",
+      "origin": "HKG",
+      "originName": "Hong Kong",
+      "originDate": "2026-12-12",
+      "originTime": "07:40",
+      "destination": "SIN",
+      "destinationName": "Singapore",
+      "destinationDate": "2026-12-12",
+      "destinationTime": "20:25",
+      "isStopOver": 0,
+      "transferCount": 1,
+      "journeysTime": "12h 45m",
+      "stopOverDuration": 255,
+      "totalStopOverCount": 1,
+      "flightNumberList": [
+       "MU0726",
+       "MU0565"
+      ],
+      "marketingFlightNumberList": [
+       "MU0726",
+       "MU0565"
+      ],
+      "airSegmentList": [
+       "20261212-HKG-PVG-MU0726",
+       "20261212-PVG-SIN-MU0565"
+      ],
+      "luggageExt": [
+       {
+        "segmentId": "20261212-HKG-PVG-MU0726",
+        "luggageType": "2",
+        "luggageDesc": "Baggage may not be checked through and needs to be checked in again at the airport."
+       }
+      ],
+      "travelInfo": [
+       {
+        "segmentId": "20261212-HKG-PVG-MU0726",
+        "travelText": "Passengers with short-term business or tourist visas are recommended to secure round-trip tickets. Due to destination policies, lack of onward travel proof may lead to check-in or border clearance difficulties."
+       }
+      ],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 1,
+      "priceKey": "ouOCBeD4kFsF_Yrx3tiqZGN0bwRD-lktor5YPyPrurwGTAjCMwYCYHTR24Js9OcP",
+      "productType": "2",
+      "cabin": [
+       "S",
+       "S"
+      ],
+      "cabinClass": [
+       "economy",
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 313,
+      "totalTax": 92,
+      "totalServiceFee": 0,
+      "totalSalePrice": 405,
+      "currency": "USD",
+      "ticketingAirline": "MU",
+      "ticketTime": 60,
+      "maxCount": 9,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null
+      },
+      "priceDetail": [
+       {
+        "passengerType": "adult",
+        "fareBasisCode": "SSE0WCS3,SSE0WCS3",
+        "price": 313,
+        "tax": 92,
+        "serviceFee": 0,
+        "salePrice": 405,
+        "number": 1,
+        "taxDetail": null,
+        "farePriceType": "0",
+        "accountCode": ""
+       }
+      ],
+      "baggageRules": [
+       {
+        "segmentId": "20261212-HKG-PVG-MU0726",
+        "passengerType": "adult",
+        "portable": {
+         "number": 1,
+         "weight": 8,
+         "unit": "KG",
+         "size": "<=115CM",
+         "description": "1 carry-on baggage 8KG"
+        },
+        "checkIn": {
+         "number": 2,
+         "weight": 23,
+         "unit": "KG",
+         "size": "<=158CM",
+         "description": "2 checked baggage 23KG"
+        }
+       }
+      ],
+      "refundRules": [
+       {
+        "rules": {
+         ">0": 690,
+         "<0": 690
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 690,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 690,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "refundOriginalText": null,
+        "segmentId": "20261212-HKG-PVG-MU0726"
+       }
+      ],
+      "changeRules": [
+       {
+        "rules": {
+         ">0": 314,
+         "<0": 314
+        },
+        "rulerItemList": [
+         {
+          "beforeAfter": true,
+          "chargeFee": 314,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         },
+         {
+          "beforeAfter": false,
+          "chargeFee": 314,
+          "dayCount": 0,
+          "hourCount": 0,
+          "rulerTime": null
+         }
+        ],
+        "passengerType": "adult",
+        "changeOriginalText": null,
+        "segmentId": "20261212-HKG-PVG-MU0726"
+       }
+      ],
+      "avgPrice": 405
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   }
+  ],
+  "segments": {
+   "20261212-HKG-PVG-MU0726": {
+    "segmentId": "20261212-HKG-PVG-MU0726",
+    "flightNumber": "MU0726",
+    "marketingFlightNumber": "MU0726",
+    "aircraftCode": "326",
+    "airlineName": "China Eastern Airlines",
+    "airlineCode": "MU",
+    "airlineIcon": "https://flink-rf-prod.tos-ap-southeast-1.volces.com/airline/logo/MU.svg",
+    "departure": "HKG",
+    "departureName": "Hong Kong",
+    "departureAirport": "HKG",
+    "departureAirportName": "Hong Kong International Airport",
+    "departureDate": "2026-12-12",
+    "departureTime": "07:40",
+    "departureTerminal": "1",
+    "arrival": "SHA",
+    "arrivalName": "Shanghai",
+    "arrivalAirport": "PVG",
+    "arrivalAirportName": "Shanghai Pudong International Airport",
+    "arrivalTerminal": "T1",
+    "arrivalDate": "2026-12-12",
+    "arrivalTime": "10:25",
+    "flightDuration": "2h 45m",
+    "distance": 773,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": "2",
+    "luggageExt": "Baggage may not be checked through and needs to be checked in again at the airport.",
+    "travelText": "Passengers with short-term business or tourist visas are recommended to secure round-trip tickets. Due to destination policies, lack of onward travel proof may lead to check-in or border clearance difficulties.",
+    "stopOver": []
+   },
+   "20261212-HKG-SIN-CX0691": {
+    "segmentId": "20261212-HKG-SIN-CX0691",
+    "flightNumber": "CX0691",
+    "marketingFlightNumber": "CX0691",
+    "aircraftCode": "359",
+    "airlineName": "Cathay Pacific Airways",
+    "airlineCode": "CX",
+    "airlineIcon": "https://flink-rf-prod.tos-ap-southeast-1.volces.com/airline/logo/CX.svg",
+    "departure": "HKG",
+    "departureName": "Hong Kong",
+    "departureAirport": "HKG",
+    "departureAirportName": "Hong Kong International Airport",
+    "departureDate": "2026-12-12",
+    "departureTime": "07:50",
+    "departureTerminal": "1",
+    "arrival": "SIN",
+    "arrivalName": "Singapore",
+    "arrivalAirport": "SIN",
+    "arrivalAirportName": "Singapore Changi Airport",
+    "arrivalTerminal": "4",
+    "arrivalDate": "2026-12-12",
+    "arrivalTime": "11:50",
+    "flightDuration": "4h",
+    "distance": 1594,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261212-PVG-SIN-MU0565": {
+    "segmentId": "20261212-PVG-SIN-MU0565",
+    "flightNumber": "MU0565",
+    "marketingFlightNumber": "MU0565",
+    "aircraftCode": "789",
+    "airlineName": "China Eastern Airlines",
+    "airlineCode": "MU",
+    "airlineIcon": "https://flink-rf-prod.tos-ap-southeast-1.volces.com/airline/logo/MU.svg",
+    "departure": "SHA",
+    "departureName": "Shanghai",
+    "departureAirport": "PVG",
+    "departureAirportName": "Shanghai Pudong International Airport",
+    "departureDate": "2026-12-12",
+    "departureTime": "14:40",
+    "departureTerminal": "T1",
+    "arrival": "SIN",
+    "arrivalName": "Singapore",
+    "arrivalAirport": "SIN",
+    "arrivalAirportName": "Singapore Changi Airport",
+    "arrivalTerminal": "3",
+    "arrivalDate": "2026-12-12",
+    "arrivalTime": "20:25",
+    "flightDuration": "5h 45m",
+    "distance": 2359,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261212-HKG-SIN-CX0659": {
+    "segmentId": "20261212-HKG-SIN-CX0659",
+    "flightNumber": "CX0659",
+    "marketingFlightNumber": "CX0659",
+    "aircraftCode": "333",
+    "airlineName": "Cathay Pacific Airways",
+    "airlineCode": "CX",
+    "airlineIcon": "https://flink-rf-prod.tos-ap-southeast-1.volces.com/airline/logo/CX.svg",
+    "departure": "HKG",
+    "departureName": "Hong Kong",
+    "departureAirport": "HKG",
+    "departureAirportName": "Hong Kong International Airport",
+    "departureDate": "2026-12-12",
+    "departureTime": "01:40",
+    "departureTerminal": "1",
+    "arrival": "SIN",
+    "arrivalName": "Singapore",
+    "arrivalAirport": "SIN",
+    "arrivalAirportName": "Singapore Changi Airport",
+    "arrivalTerminal": "4",
+    "arrivalDate": "2026-12-12",
+    "arrivalTime": "05:40",
+    "flightDuration": "4h",
+    "distance": 1594,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   }
+  },
+  "queryTime": "2026-11-12 21:07:15",
+  "policyKey": null
+ }
+}

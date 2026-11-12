@@ -1,0 +1,125 @@
+# Accomy AI Travel profile. Secrets are not stored here: they live in the profile's .env (see
+# distribution.yaml env_requires). Every key below is read by the code path named in its comment.
+
+_config_version: 53
+
+model:
+  provider: newapi
+  default: gpt-6.1-sol
+  api_mode: codex_responses
+
+providers:
+  newapi:
+    name: Accomy NewAPI
+    api: https://newapi.mongoso.com/v1
+    key_env: OPENAI_API_KEY
+    api_mode: codex_responses
+    discover_models: false
+    models:
+      gpt-6.1-sol: {}
+
+agent:
+  reasoning_effort: "medium"
+  # Telegram is excluded from the coding posture already; set explicitly so `hermes chat` tests match.
+  coding_context: "off"
+  max_turns: 20
+  # Safety net that outlives any later edit to platform_toolsets (tools_config.py:639).
+  disabled_toolsets:
+    - terminal
+    - process_manage
+    - file
+    - code_execution
+    - browser
+    - delegation
+    - cronjob
+    - memory
+    - session_search
+    - skills
+    - todo
+    - tts
+    - vision
+    - image_gen
+    - computer_use
+    - web
+    - clarify
+
+plugins:
+  enabled:
+    - accomy_travel
+
+# Exactly the plugin's 12 tools. no_mcp stops globally enabled mcp_servers from joining (tools_config.py:747).
+platform_toolsets:
+  telegram:
+    - accomy_travel
+    - no_mcp
+  cli:
+    - accomy_travel
+    - no_mcp
+
+# The tool surface must be present on every call: deferred tools would hide behind tool_describe/tool_call.
+tools:
+  tool_search:
+    enabled: "off"
+
+# One profile serves many users, so nothing may persist or leak between them.
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  nudge_interval: 0
+  provider: ""
+
+skills:
+  creation_nudge_interval: 0
+
+auxiliary:
+  background_review:
+    enabled: false
+  title_generation:
+    enabled: false
+
+curator:
+  enabled: false
+
+cron:
+  allow_agent_scheduling: false
+
+updates:
+  check: false
+
+checkpoints:
+  enabled: false
+
+stt:
+  enabled: false
+
+telemetry:
+  shared_metrics:
+    enabled: false
+
+terminal:
+  # Must be an existing empty directory; create it before enabling terminal. If it is missing, the local
+  # terminal falls back to the nearest existing parent (your HOME) with only a log warning. The default "."
+  # would load whatever project the gateway was started from into the prompt.
+  cwd: "~/accomy-workspace"
+
+gateway:
+  # Closed by default: strangers get one polite refusal, not a pairing code. Open the bot with
+  # gateway.allow_all_users or TELEGRAM_ALLOWED_USERS (see the plugin README).
+  unauthorized_dm_behavior: decline
+  unauthorized_dm_decline_message: "您好，Accomy 目前只開放給受邀的使用者。"
+  platforms:
+    telegram:
+      # Skips SOUL/AGENTS/.cursorrules discovery for messaging sessions (session_execution.py:42-54).
+      skip_context_files: true
+
+telegram:
+  suggested_replies: true
+  require_mention: true
+  reactions: false
+  # Fail-closed owner placeholder: slash gating turns on only when an admin list is non-empty, and "0"
+  # matches no Telegram user, so every sender gets only /help, /whoami and the list below.
+  # Replace "0" with the owner's numeric Telegram ID (see the plugin README).
+  allow_admin_from: ["0"]
+  user_allowed_commands: [start, new, stop]
+  group_allow_admin_from: ["0"]
+  group_user_allowed_commands: [start, new, stop]

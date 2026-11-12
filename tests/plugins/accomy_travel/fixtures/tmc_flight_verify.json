@@ -1,0 +1,151 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": {
+  "offerData": {
+   "tripType": 1,
+   "priceKey": "SBeKo-Q5zGn9nJiYQZ1JTmqo4TST4KRrJ9GvLDnQn5xdhTj6ssvxJ1i-NX5eEA80",
+   "productType": "2",
+   "cabin": [
+    "Y"
+   ],
+   "cabinClass": [
+    "economy"
+   ],
+   "cabinTag": null,
+   "purchasePlatformId": 2,
+   "totalTicketPrice": 763,
+   "totalTax": 88,
+   "totalServiceFee": 0,
+   "totalSalePrice": 851,
+   "currency": "USD",
+   "ticketingAirline": "CX",
+   "ticketTime": 60,
+   "maxCount": 9,
+   "salesPolicyId": 0,
+   "isInternational": 1,
+   "isIntercontinental": 0,
+   "salesLimit": {
+    "ageLimit": null,
+    "passengerTypeLimit": null,
+    "allowDocumentType": null,
+    "allowBuyNationality": null,
+    "prohibitBuyNationality": null
+   },
+   "priceDetail": [
+    {
+     "passengerType": "adult",
+     "fareBasisCode": "YQ21HKAO",
+     "price": 763,
+     "tax": 88,
+     "serviceFee": 0,
+     "salePrice": 851,
+     "number": 1,
+     "taxDetail": null,
+     "farePriceType": "0",
+     "accountCode": ""
+    }
+   ],
+   "baggageRules": [
+    {
+     "segmentId": "20261212-HKG-SIN-CX0659",
+     "passengerType": "adult",
+     "portable": {
+      "number": 1,
+      "weight": 7,
+      "unit": "KG",
+      "size": "<=115CM",
+      "description": "MAX 7KG 15LB UPTO 45LI 115LCM"
+     },
+     "checkIn": {
+      "number": 1,
+      "weight": 23,
+      "unit": "KG",
+      "size": "<=158CM",
+      "description": "UPTO50LB 23KG AND62LI 158LCM"
+     }
+    }
+   ],
+   "refundRules": [
+    {
+     "rules": {
+      ">0": 176,
+      "<0": 376
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": 176,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": 376,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "refundOriginalText": null,
+     "segmentId": "20261212-HKG-SIN-CX0659"
+    }
+   ],
+   "changeRules": [
+    {
+     "rules": {
+      ">0": 151,
+      "<0": 351
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": 151,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": 351,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "changeOriginalText": null,
+     "segmentId": "20261212-HKG-SIN-CX0659"
+    }
+   ],
+   "avgPrice": 851,
+   "flightTravelPolicyCheckResult": null
+  },
+  "journeys": [
+   {
+    "journeyId": "2d297b4b21529d2defc95b6a2afdcd90",
+    "origin": "HKG",
+    "originName": "Hong Kong",
+    "originDate": "2026-12-12",
+    "originTime": "01:40",
+    "destination": "SIN",
+    "destinationName": "Singapore",
+    "destinationDate": "2026-12-12",
+    "destinationTime": "05:40",
+    "journeysTime": "4h",
+    "isStopOver": 0,
+    "transferCount": 0,
+    "flightNumberList": [
+     "CX0659"
+    ],
+    "airSegmentList": [],
+    "luggageExt": [],
+    "travelInfo": []
+   }
+  ],
+  "bookingNotice": "<ol><li><strong>Ticket Validity：</strong>The ticket validity period commences from the day after the ticket is purchased and is valid for one year. If a passenger requests a ticket change resulting in a new ticket number, the validity period will be recalculated from the day after the new ticket is issued. The validity period is calculated from 00:00 on the day after the first flight departs, the ticket is purchased, or the ticket is reissued, up to but not including 24:00 on the day the validity expires. Please note that some promotional fares have strict minimum and/or maximum stay requirements at a destination, and passengers must complete their travel within the stipulated time frame.</s",
+  "travelPolicy": null
+ }
+}

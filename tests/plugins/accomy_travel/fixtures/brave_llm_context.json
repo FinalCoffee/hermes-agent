@@ -1,0 +1,63 @@
+{
+ "grounding": {
+  "generic": [
+   {
+    "url": "https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html",
+    "title": "Exemption of Visa (Short-Term Stay)",
+    "snippets": [
+     "| Asia | Europe |\n| --- | --- |\n| Taiwan (Note 4) | Estonia |",
+     "- The period of stay granted upon landing permission will be \"15 days\" for Indonesia and Thailand, “30 days” for Brunei and Qatar, and \"90 days\" for other countries and regions.",
+     "- (Note 4) Visa exemption arrangement for Taiwan is limited to passport holders with a personal ID number."
+    ]
+   },
+   {
+    "url": "https://www.mofa.go.jp/j_info/visit/visa/visaonline.html",
+    "title": "The JAPAN eVISA system (electronic visa)",
+    "snippets": [
+     "## The JAPAN eVISA system (electronic visa)\nJapanese\n\nForeign nationals/people who wish to travel to Japan for tourism for a short-term period can apply for a visa online and receive an electronic visa (eVISA) through the JAPAN eVISA system. As of May 15 2026, the JAPAN eVISA system is available for nationals/people residing in the following countries/regions.",
+     "## Eligibility\n1. Australia, Brazil, Cambodia, Canada, Saudi Arabia, South Africa, Taiwan, United Kingdom, U.S.A. All foreign nationals/people residing in these countries/regions, except those who are exempt from short-term visa, can apply for an eVISA through the JAPAN eVISA website Open a New Window .\n2. Application should be made through an accredited agency in countries/regions below. For details, applicants are advised to check the website of the Japanese overseas establishment with jurisdiction over their place of residence.",
+     "- (1) Japan eVISA is available for those traveling to Japan by air or sea (limited to international scheduled passenger ferries between Japan and Busan or Shanghai).\n  - (2) During the application process, the applicant may be requested to appear in person at the Japanese overseas establishment with jurisdiction over the place of the applicant’s residence for an interview.\n  - (3) Only ordinary passport holder is eligible to apply through JAPAN eVISA website.",
+     "## Types of visa applicable\nSingle-entry short-term stay visa for the purpose of Tourism (for a period of up to 90 days) (Note).",
+     "If you wish to visit Japan for other purposes or for a long-term stay, please submit your application to the Japanese Embassy, Consulate General or Consular office with jurisdiction over your place of residence.  (For Taiwan, Taipei / Kaohsiung offices of Japan-Taiwan Exchange Association) In this case, you will have a visa sticker on your passport."
+    ]
+   },
+   {
+    "url": "javascript:alert(1)",
+    "title": "Bad",
+    "snippets": [
+     "x"
+    ]
+   },
+   {
+    "url": "https://example.org/empty",
+    "title": "Empty",
+    "snippets": []
+   }
+  ],
+  "map": []
+ },
+ "sources": {
+  "https://www.mofa.go.jp/j_info/visit/visa/short/novisa.html": {
+   "title": "Exemption of Visa (Short-Term Stay)",
+   "hostname": "www.mofa.go.jp",
+   "age": [
+    "Monday, September 01, 2025",
+    "2025-09-01",
+    "437 days ago",
+    "2025-09-01T00:00:00Z"
+   ],
+   "snippet": "(Note 4) Visa exemption arrangement for Taiwan is limited to passport holders with a personal ID number."
+  },
+  "https://www.mofa.go.jp/j_info/visit/visa/visaonline.html": {
+   "title": "The JAPAN eVISA system (electronic visa)",
+   "hostname": "www.mofa.go.jp",
+   "age": [
+    "Friday, May 15, 2026",
+    "2026-05-15",
+    "181 days ago",
+    "2026-05-15T00:00:00Z"
+   ],
+   "snippet": "Australia, Brazil, Cambodia, Canada, Saudi Arabia, South Africa, Taiwan, United Kingdom, U.S.A. All foreign nationals/people residing in these countries/regions, except those who are exempt from short-term visa, can apply for an eVISA through the…"
+  }
+ }
+}

@@ -1,0 +1,82 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": [
+  {
+   "destinationId": "C33593",
+   "dataType": 2,
+   "destinationName": [
+    {
+     "hotelId": null,
+     "name": "Tokyo",
+     "cityName": "Tokyo",
+     "cityCode": "3593",
+     "language": "en-US",
+     "countryCode": "89",
+     "provinceCode": "6048228",
+     "countryName": "Japan",
+     "provinceName": "Tokyo Prefecture",
+     "latGoogle": 35.681143,
+     "lngGoogle": 139.767208
+    }
+   ]
+  },
+  {
+   "destinationId": "H1010496827",
+   "dataType": 1,
+   "destinationName": [
+    {
+     "hotelId": 10496827,
+     "name": "Lana Tokyo",
+     "cityName": "Tokyo",
+     "cityCode": "3593",
+     "language": "en-US",
+     "countryCode": "89",
+     "provinceCode": "6048228",
+     "countryName": "Japan",
+     "provinceName": "Tokyo Prefecture",
+     "latGoogle": 35.706948,
+     "lngGoogle": 139.745145
+    }
+   ]
+  },
+  {
+   "destinationId": "H1010043357",
+   "dataType": 1,
+   "destinationName": [
+    {
+     "hotelId": 10043357,
+     "name": "ONE @ Tokyo",
+     "cityName": "Tokyo",
+     "cityCode": "3593",
+     "language": "en-US",
+     "countryCode": "89",
+     "provinceCode": "6048228",
+     "countryName": "Japan",
+     "provinceName": "Tokyo Prefecture",
+     "latGoogle": 35.711808,
+     "lngGoogle": 139.815949
+    }
+   ]
+  },
+  {
+   "destinationId": "H1010567594",
+   "dataType": 1,
+   "destinationName": [
+    {
+     "hotelId": 10567594,
+     "name": "LOFT HOTEL TOKYO #Asakusa",
+     "cityName": "Tokyo",
+     "cityCode": "3593",
+     "language": "en-US",
+     "countryCode": "89",
+     "provinceCode": "6048228",
+     "countryName": "Japan",
+     "provinceName": "Tokyo Prefecture",
+     "latGoogle": 35.704935,
+     "lngGoogle": 139.804296
+    }
+   ]
+  }
+ ]
+}

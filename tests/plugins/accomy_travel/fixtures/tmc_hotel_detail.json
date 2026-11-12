@@ -1,0 +1,183 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": {
+  "hotelId": 10235214,
+  "hotelName": "Hotel Metropolitan Tokyo Marunouchi",
+  "hotelNameCn": "东京丸之内都市大饭店",
+  "address": "1-7-12 Marunouchi",
+  "appearancePicUrl": "https://i.travelapi.com/lodging/2000000/1670000/1661600/1661514/a6fbecce_z.jpg",
+  "hotelIntroduce": "With a stay at Hotel Metropolitan Tokyo Marunouchi, you'll be centrally located in Tokyo, within a 5-minute drive of Tokyo Imperial Palace and Nippon Budokan.  This hotel is 0.7 mi (1.1 km) from Tokyo International Forum and 2.1 mi (3.4 km) from Tokyo Dome.<br />Satisfy your appetite for lunch or dinner at TENQOO, a restaurant which specializes in French cuisine, or stay in and take advantage of the room service (during limited hours). Buffet breakfasts are available daily from 6:00 AM to 10:00 AM for a fee.<br />Make yourself at home in one of the 341 guestrooms featuring refrigerators. Complimentary wireless internet access is available to keep you connected. Private bathrooms with shower/tub combinations feature complimentary toiletries and bidets. Conveniences include phones, as well as safes and desks.<br />Featured amenities include dry cleaning/laundry services, a 24-hour front desk, and multilingual staff. Self parking (subject to charges) is available onsite.<br />",
+  "telephone": "81-3-32112233",
+  "fax": "81-3-32112244",
+  "hotelStar": 39,
+  "praciceDate": null,
+  "fitmentDate": null,
+  "parentHotelGroupName": "Nippon Hotel",
+  "parentHotelGroupNameCn": null,
+  "plateName": "Metropolitan Hotels",
+  "plateNameCn": "Metropolitan Hotels",
+  "hotelBrandCode": "5026372",
+  "plateCode": "5026370",
+  "countryCode": "89",
+  "countryName": "Japan",
+  "countryNameCn": "日本",
+  "cityName": "Tokyo",
+  "cityNameCn": "东京",
+  "cityCode": "3593",
+  "distinctName": null,
+  "distinctNameCn": null,
+  "businessName": null,
+  "businessNameCn": null,
+  "lngGoogle": "139.769404",
+  "latGoogle": "35.683739",
+  "checkInTime": "15:00",
+  "checkOutTime": "12:00",
+  "checkInLateTime": null,
+  "checkOutEarlyTime": null,
+  "roomNum": "341",
+  "hotelScore": "4.60",
+  "hotelFacilityNew": [
+   {
+    "categoryType": "2",
+    "featureId": "1281",
+    "name": "Phone",
+    "nameCn": "视频流服务",
+    "status": 1,
+    "typeCode": "13",
+    "typeName": "Others"
+   },
+   {
+    "categoryType": "1",
+    "featureId": "5122",
+    "name": "Wheelchair accessible (may have limitations)",
+    "nameCn": "轮椅无障碍设施（可能会有限制）",
+    "status": 1,
+    "typeCode": "16",
+    "typeName": "Other Services"
+   },
+   {
+    "categoryType": "2",
+    "featureId": "5251",
+    "name": "Premium bedding",
+    "nameCn": "高档床品",
+    "status": 1,
+    "typeCode": "13",
+    "typeName": "Others"
+   }
+  ],
+  "hotelTextPolicies": [
+   {
+    "code": "parking",
+    "codeName": "停车场",
+    "text": "",
+    "textCn": ""
+   },
+   {
+    "code": "instructions",
+    "codeName": "入住说明",
+    "text": "<ul>  <li>Extra-person charges may apply and vary depending on property policy</li><li>Government-issued photo identification and a credit card, debit card, or cash deposit may be required at check-in for incidental charges</li><li>Special requests are subject to availability upon check-in and may incur additional charges; special requests cannot be guaranteed</li><li>This property accepts credit cards; cash is not accepted</li><li>Cashless transactions are available</li>  </ul>",
+    "textCn": "<ul>  <li>可能需收取加人费用，具体费用取决于住宿的政策。</li><li>入住时可能需要出示政府核发的身份证件（带照片）和信用卡、借记卡或缴付现金押金，以便于支付其他杂项的费用</li><li>特殊要求视入住时的具体情况而定，可能产生额外的费用。不能保证满足特殊要求。</li><li>此住宿接待方接受以信用卡付款；恕不接受现金</li><li>支持无现金交易。</li>  </ul>"
+   },
+   {
+    "code": "importantNotices",
+    "codeName": "订房必读",
+    "text": "",
+    "textCn": ""
+   }
+  ],
+  "applicableGuest": null,
+  "hotelImages": [
+   {
+    "hotelId": 10235214,
+    "images": [
+     {
+      "imageId": 128705179,
+      "imageType": 5,
+      "isMain": 0,
+      "url": "https://i.travelapi.com/lodging/2000000/1670000/1661600/1661514/1fbf381a_z.jpg"
+     },
+     {
+      "imageId": 128705178,
+      "imageType": 5,
+      "isMain": 0,
+      "url": "https://i.travelapi.com/lodging/2000000/1670000/1661600/1661514/e8396744_z.jpg"
+     },
+     {
+      "imageId": 128705177,
+      "imageType": 5,
+      "isMain": 0,
+      "url": "https://i.travelapi.com/lodging/2000000/1670000/1661600/1661514/dc7e39f8_z.jpg"
+     }
+    ]
+   }
+  ],
+  "hotelCategory": null,
+  "hotelSubCategory": null,
+  "facilityIdentification": null,
+  "isCollect": 0,
+  "roomInfos": [
+   {
+    "isAllowSmoking": 2,
+    "maxChild": 1,
+    "maxPerson": 3,
+    "roomAcreage": "20.0",
+    "roomBedTypeInfos": {
+     "roomBeds": [
+      {
+       "bedGroups": [
+        {
+         "bedInfos": [
+          {
+           "bedName": "Super King Size Bed",
+           "bedNum": "1",
+           "bedTypeCode": "L000000"
+          }
+         ]
+        }
+       ],
+       "roomName": "Room, 1 King Bed1"
+      }
+     ]
+    },
+    "roomId": 50593988,
+    "roomName": "Room, 1 King Bed",
+    "roomNameCn": "高级房, 1 张大床, 无烟房 (UTSUROI,Renovated,20sqm)",
+    "windowDetail": 2
+   },
+   {
+    "isAllowSmoking": 2,
+    "maxChild": 1,
+    "maxPerson": 3,
+    "roomAcreage": "25.0",
+    "roomBedTypeInfos": {
+     "roomBeds": [
+      {
+       "bedGroups": [
+        {
+         "bedInfos": [
+          {
+           "bedName": "King Size Bed",
+           "bedNum": "2",
+           "bedTypeCode": "1000000"
+          },
+          {
+           "bedName": "Sofa Bed",
+           "bedNum": "1",
+           "bedTypeCode": "I000000"
+          }
+         ]
+        }
+       ],
+       "roomName": "Suite, 1 Bedroom1"
+      }
+     ]
+    },
+    "roomId": 50593989,
+    "roomName": "Suite, 1 Bedroom",
+    "roomNameCn": "标准房, 1 张特大床, 无烟房 (1 King Bed 25sqm)",
+    "windowDetail": 2
+   }
+  ]
+ }
+}

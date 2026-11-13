@@ -346,7 +346,7 @@ def test_missing_credentials_refuse_before_any_request(monkeypatch):
     assert fake.exchanges == []
 
 
-def test_a_flight_search_is_given_three_times_as_long_as_any_other_read(monkeypatch):
+def test_a_flight_search_and_a_price_check_are_given_longer_than_any_other_read(monkeypatch):
     waits = {}
 
     def transport(method, url, *, timeout, **_request):
@@ -357,9 +357,65 @@ def test_a_flight_search_is_given_three_times_as_long_as_any_other_read(monkeypa
     monkeypatch.setattr(_common, "request_json", transport)
     tmc_client.flight_search({"tripType": 1})
     tmc_client.flight_verify("price-key")
+    tmc_client.flight_fares("price-key")
 
     assert waits["/flight/search"] == 3 * _common.DEFAULT_TIMEOUT
-    assert waits["/flight/verify"] == waits["/auth/token"] == _common.DEFAULT_TIMEOUT
+    assert waits["/flight/verify"] == 2 * _common.DEFAULT_TIMEOUT
+    assert waits["/flight/cabin"] == waits["/auth/token"] == _common.DEFAULT_TIMEOUT
+
+
+def _timed_out_then(answers: list) -> tuple[list, object]:
+    """A transport whose flight searches are answered in turn from *answers*, and what it was sent."""
+    sent = []
+
+    def transport(method, url, *, content=None, **_request):
+        path = url.split("?", 1)[0].removeprefix(tmc_client.BASE_URL + tmc_client.API_PREFIX)
+        if path == "/auth/token":
+            return _token_ok()
+        sent.append(content)
+        return answers[len(sent) - 1]
+
+    return sent, transport
+
+
+PLATFORM_TIMEOUT = (504, {"code": "DOWNSTREAM_TIMEOUT", "message": "downstream timeout"})
+
+
+def test_a_flight_search_the_platform_timed_out_is_sent_again_unchanged(monkeypatch):
+    found = {"flight": [{"journeys": []}]}
+    sent, transport = _timed_out_then([PLATFORM_TIMEOUT, PLATFORM_TIMEOUT, (200, {"code": "0", "data": found})])
+    monkeypatch.setattr(_common, "request_json", transport)
+
+    assert tmc_client.flight_search({"tripType": 2}) == found
+    assert len(sent) == 3 and len(set(sent)) == 1
+
+
+def test_a_flight_search_that_keeps_timing_out_is_given_up_after_three_sendings(monkeypatch):
+    sent, transport = _timed_out_then([PLATFORM_TIMEOUT] * 5)
+    monkeypatch.setattr(_common, "request_json", transport)
+
+    with pytest.raises(_common.ApiError) as raised:
+        tmc_client.flight_search({"tripType": 2})
+    assert raised.value.code == "downstream_timeout"
+    assert len(sent) == 3
+
+
+def test_a_flight_search_that_fails_for_another_reason_is_not_sent_again(monkeypatch):
+    sent, transport = _timed_out_then([(200, {"code": "PARAM_VALIDATION_ERROR", "message": "bad date"})] * 3)
+    monkeypatch.setattr(_common, "request_json", transport)
+
+    with pytest.raises(_common.ApiError) as raised:
+        tmc_client.flight_search({"tripType": 2})
+    assert raised.value.code == "param_validation_error"
+    assert len(sent) == 1
+
+
+def test_the_fares_of_an_itinerary_are_read_by_its_price_key(monkeypatch):
+    fares = {"flight": [{"journeys": [{}, {}], "offerPriceList": []}]}
+    fake = _install(monkeypatch, {("POST", "/openapi/v1/tmc/flight/cabin"): (200, {"code": "0", "data": fares})})
+
+    assert tmc_client.flight_fares("key-of-the-last-leg") == fares
+    assert json.loads(fake.exchanges[-1].content) == {"priceKey": "key-of-the-last-leg", "language": "en-US"}
 
 
 def test_airport_lookup_is_cached_per_keyword(monkeypatch):

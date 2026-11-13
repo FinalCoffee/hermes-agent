@@ -56,6 +56,13 @@ def test_tools_section_keeps_hotel_and_flight_search_on_accomys_own_tools():
     assert "Never use research_web" in section
 
 
+def test_tools_section_has_a_journey_out_and_back_searched_as_one_trip():
+    section = " ".join(dict(policy.SECTIONS)["accomy.tools"].split())
+    assert "Search a journey out and back as one round trip" in section
+    assert "a return from another city as one multi-city trip" in section
+    assert "never as two one-way trips" in section
+
+
 def test_travel_standard_section_states_the_limits_the_tools_enforce():
     section = dict(policy.SECTIONS)["accomy.travel_standard"]
     limits = (

@@ -103,6 +103,19 @@ def test_an_order_is_refused_unless_a_telegram_private_chat_names_its_sender(pla
     assert message == tools_orders.ONLY_IN_PRIVATE_CHAT
 
 
+def test_a_flight_picked_for_one_leg_of_a_trip_cannot_be_ordered_as_a_fare():
+    picked = quotes.FlightChoice(
+        search={"tripType": 2}, journey_ids=("supplier-journey-1",), legs=_flight().legs, flying=(220,),
+        fare_limit=None)
+
+    with session():
+        option_id = quotes.remember(quotes.FLIGHT_CHOICE, picked)
+        code, message = _error(_place(_order_args(option_id)))
+
+    assert code == "trip_incomplete"
+    assert message == tools_orders.TRIP_INCOMPLETE
+
+
 def test_a_command_line_run_without_any_session_cannot_order():
     qid = quotes.remember(quotes.HOTEL, _hotel())
 

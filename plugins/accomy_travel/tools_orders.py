@@ -58,6 +58,9 @@ BUYER_LIMIT = (
     f"The daily limit of {ORDERS_PER_BUYER_PER_DAY} orders for this chat is reached. "
     "Tell the user to try again tomorrow.")
 DAY_LIMIT = "Orders are full for today. Tell the user to try again tomorrow."
+TRIP_INCOMPLETE = (
+    "That id is a flight picked for one leg of a round trip or a multi-city trip, not a fare. Call search_flights "
+    "with continue_from set to it, choose the remaining legs, and order the quote_id of the last leg.")
 
 # A refused write is answered with a fixed sentence per store code: the store's own text is never shown.
 _STORE_MESSAGES = {
@@ -213,15 +216,17 @@ def _flight_item(facts: quotes.FlightFare, travellers: tuple[store.Traveller, ..
         raise ValueError(f"A flight needs every passenger's name: give {facts.adults} travellers.")
     legs = tuple(
         store.FlightSegment(
-            journey=1, carrier=leg.carrier, flight_no=leg.flight_no, origin=leg.origin,
+            journey=leg.journey, carrier=leg.carrier, flight_no=leg.flight_no, origin=leg.origin,
             destination=leg.destination, depart_local=leg.depart_local, arrive_local=leg.arrive_local,
             cabin=leg.cabin)
         for leg in facts.legs)
-    route = f"{legs[0].origin} to {legs[-1].destination}"
+    # One route per leg of the trip: a round trip reads "TPE to NRT, NRT to TPE".
+    by_leg = [[leg for leg in legs if leg.journey == number] for number in sorted({leg.journey for leg in legs})]
+    route = ", ".join(f"{flown[0].origin} to {flown[-1].destination}" for flown in by_leg)
     flights = ", ".join(leg.flight_no for leg in legs)  # the supplier's flight number already carries the airline code
     return store.NewItem(
         source="TMC", title=f"{flights}: {route}"[:200], sell_amount=facts.total.amount, quantity=facts.adults,
-        detail=store.FlightItinerary(trip_kind="ONE_WAY", segments=legs, adults=facts.adults),
+        detail=store.FlightItinerary(trip_kind=facts.trip_kind, segments=legs, adults=facts.adults),
         travellers=travellers, conversion=_conversion(facts.total))
 
 
@@ -259,6 +264,8 @@ def _build(picks: list[_Pick], travellers: tuple[store.Traveller, ...], buyer: s
             if pick.quantity is not None:
                 raise ValueError("quantity applies to event tickets only.")
             items.append(_flight_item(quote.facts, travellers))
+        elif quote.kind == quotes.FLIGHT_CHOICE:
+            raise ApiError("trip_incomplete", TRIP_INCOMPLETE)
         else:
             items.append(_event_item(quote.facts, pick.quantity or 1))
     return store.NewBooking(
@@ -344,13 +351,14 @@ def _details(item: store.Item) -> dict:
             "nights": nights, "guests": detail["adult_count"], "rooms": detail["room_count"],
         })
     if item.kind == "FLIGHT":
-        return {
+        return _common.compact({
+            "trip": None if detail["trip_kind"] == quotes.ONE_WAY else detail["trip_kind"].replace("_", " ").lower(),
             "passengers": detail["adult_count"],
             "flights": [
                 f"{s['flight_no']} {s['origin_code']} {s['depart_local']:%Y-%m-%d %H:%M} "
                 f"to {s['destination_code']} {s['arrive_local']:%Y-%m-%d %H:%M}"
                 for s in detail["segments"]],
-        }
+        })
     return _common.compact({
         "event": detail["event_name"], "venue": detail.get("venue_name"), "category": detail.get("category_name"),
         "starts_local": f"{detail['starts_local']:%Y-%m-%d %H:%M}" if detail.get("starts_local") else None,

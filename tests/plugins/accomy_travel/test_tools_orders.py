@@ -225,6 +225,37 @@ def test_a_flight_order_takes_its_fare_in_usd_and_every_passenger(orders):
     assert placed["items"][0]["details"]["flights"][0].startswith(offer["segments"][0]["flight"])
 
 
+def test_a_round_trip_is_one_flight_item_that_keeps_each_flight_with_its_leg(orders, monkeypatch):
+    legs = [_fixture("tmc_flight_round_trip_leg1.json")["data"], _fixture("tmc_flight_round_trip_leg2.json")["data"]]
+    monkeypatch.setattr(tmc_client, "flight_search", lambda body: legs[len(body.get("journeyId") or [])])
+    with buyer():
+        out = _ok(tools_flights.search_flights({
+            "origin": "TPE", "destination": "TYO", "depart_date": _future(30), "return_date": _future(34)}))
+        back = _ok(tools_flights.search_flights({"continue_from": out["flights"][0]["option_id"]}))
+        placed = _ok(_order(back["flights"][0]["quote_id"]))
+
+    (item,) = placed["items"]
+    assert placed["total"] == back["flights"][0]["price"]
+    assert item["details"]["trip"] == "round trip"
+    assert [line.split()[0] for line in item["details"]["flights"]] == ["TR0866", "GK0013"]
+    assert item["title"] == "TR0866, GK0013: TPE to NRT, NRT to TPE"
+    assert _count(orders, "SELECT trip_kind FROM o_booking_item_flight") == "ROUND_TRIP"
+    assert _count(
+        orders, "SELECT array_agg(journey_seq ORDER BY segment_seq) FROM o_booking_item_flight_segment") == [1, 2]
+
+
+def test_an_option_of_an_earlier_leg_is_refused_and_leaves_no_order(orders, monkeypatch):
+    monkeypatch.setattr(
+        tmc_client, "flight_search", lambda body: _fixture("tmc_flight_round_trip_leg1.json")["data"])
+    with buyer():
+        out = _ok(tools_flights.search_flights({
+            "origin": "TPE", "destination": "TYO", "depart_date": _future(30), "return_date": _future(34)}))
+        code, _message = _error(_order(out["flights"][0]["option_id"]))
+
+    assert code == "trip_incomplete"
+    assert _count(orders, "SELECT count(*) FROM o_booking") == 0
+
+
 def test_an_event_order_charges_the_tickets_it_asks_for_converted_to_usd(orders):
     with buyer():
         listing = _event_listing()

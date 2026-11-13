@@ -20,13 +20,13 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 | `__init__.py`, `plugin.yaml` | Registration: the tools, three hooks, six prompt sections, the speech-to-text provider, the `accomy-orders` CLI command |
 | `_common.py` | The tool contract, secrets, `request_json` (the plugin's only HTTP function), caller identity, rate limits, supplier budgets |
 | `tmc_client.py` | Signed TMC client and its read-endpoint allowlist |
-| `tools_hotels.py`, `tools_flights.py` | Hotel and flight search, room rates, fare verification |
+| `tools_hotels.py`, `tools_flights.py` | Hotel and flight search (one way, round trip and multi-city, a leg at a time), room rates, fare verification |
 | `standard.py` | The travel standard those two tools enforce |
 | `seatunique_client.py`, `tools_events.py` | Event and ticket search (GET only) |
 | `tools_places.py`, `geo.py` | Places, weather and geocoding (Google) |
 | `tools_research.py`, `scope.py` | Public-web research (Brave) and the scope screen |
 | `fx.py` | Conversion to US dollars from a fixed table |
-| `quotes.py` | What each caller was shown, under short quote ids |
+| `quotes.py` | What each caller was shown, under short quote ids, and the flights picked so far in a trip |
 | `tools_orders.py`, `orderbridge.py`, `orderstore/` | Demonstration orders in PostgreSQL: connection, migrations, store, operator CLI |
 | `payment.py` | Signed links to the demo payment page, and the void and status requests to it |
 | `policy.py` | The prompt sections, the out-of-scope reminder, the suggested-replies footer |
@@ -48,6 +48,11 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   tickets. The price and the facts of an order come from what a search tool showed that caller (`quotes.py`),
   never from a number the model types. The model supplies only the travellers, the contact and the trip. The
   buyer is the session actor the gateway bound, never model output.
+- **A journey out and back is one trip.** `search_flights` searches a round trip (`return_date`) or a
+  multi-city trip (`more_legs`) as one supplier search, answered a leg at a time: an earlier leg's flight gets an
+  `option_id` (`quotes.FLIGHT_CHOICE`), which only `continue_from` accepts, and the last leg's flight gets the
+  quote of the whole trip. Keep the two ids apart: an `option_id` is never orderable. The live price of a trip
+  goes through `tmc_client.flight_fares` and then verify, because verify refuses the search's own key.
 - **Prices are in US dollars.** Tools return prices through `fx.py`. A price in a currency the table lacks is
   marked `unconverted` and cannot be ordered.
 - **The travel standard has one source.** Its numbers live in `standard.py`. The tools leave out what is
@@ -84,7 +89,7 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   Numbers run without gaps, and a migration file holds no transaction statement. A non-loopback database is
   refused unless its connection string verifies TLS (`orderstore/db.py`).
 - **Limits are named constants** in `ingress.py`, `attachments.py`, `documents.py`, `parsers.py`,
-  `_document_worker.py`, `ocr.py`, `speech.py`, `_common.py`, `tools_orders.py`, `tools_research.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
+  `_document_worker.py`, `ocr.py`, `speech.py`, `_common.py`, `tools_flights.py`, `tmc_client.py`, `tools_orders.py`, `tools_research.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
 - **Secrets are named, never stored.** `distributions/accomy/distribution.yaml` lists the variable names. No
   fixture, test or document carries a value.
 

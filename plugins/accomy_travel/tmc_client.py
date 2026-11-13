@@ -33,9 +33,10 @@ APP_KEY_ENV = "TMC_APP_KEY"
 APP_SECRET_ENV = "TMC_APP_SECRET"
 LANGUAGE = "en-US"
 
-# Every TMC endpoint this bot may reach: the session, lookups, searches and the price check. Orders are
-# recorded in the bot's own database (tools_orders.py). No create-order, pay, cancel, change or refund
-# endpoint is listed, so a request for one is refused in _send, whatever key is configured and whoever asks.
+# Every TMC endpoint this bot may reach: the session, lookups, searches, the fares of one itinerary and the
+# price check. Orders are recorded in the bot's own database (tools_orders.py). No create-order, pay, cancel,
+# change or refund endpoint is listed, so a request for one is refused in _send, whatever key is configured
+# and whoever asks.
 _READ_ENDPOINTS = frozenset({
     ("POST", "/auth/token"),
     ("GET", "/hotel/locations"),
@@ -43,16 +44,25 @@ _READ_ENDPOINTS = frozenset({
     ("POST", "/hotel/products/search"),
     ("GET", "/dict/airports"),
     ("POST", "/flight/search"),
+    ("POST", "/flight/cabin"),
     ("POST", "/flight/verify"),
 })
 _HOTEL_DETAIL_PATH = re.compile(r"/hotel/[0-9]+")  # digits only: /hotel/order is the create-order endpoint
 # A flight search asks every fare source at once. With a production key it took about 20 seconds for a route
-# nobody had searched lately and returned some 500 fares, so it gets three times the default wait. Every other
-# read answers in a few seconds.
-_TIMEOUTS = {("POST", "/flight/search"): 3 * _common.DEFAULT_TIMEOUT}
+# nobody had searched lately and returned some 500 fares, so it gets three times the default wait. The price
+# check asks the airline itself: for a round trip it took up to 25 seconds, so it gets twice the default, which
+# leaves the platform's own 30 seconds as the limit. Every other read answers in a few seconds.
+_TIMEOUTS = {
+    ("POST", "/flight/search"): 3 * _common.DEFAULT_TIMEOUT,
+    ("POST", "/flight/verify"): 2 * _common.DEFAULT_TIMEOUT,
+}
 
 _SUCCESS_CODES = frozenset({"0", "SUCCESS"})
 _TOKEN_EXPIRED = "401"
+# The platform gives a supplier 30 seconds and then answers with this code (HTTP 504).
+_DOWNSTREAM_TIMEOUT = "downstream_timeout"
+# How often one flight search is sent before the platform's timeout is passed on to the caller.
+_SEARCH_ATTEMPTS = 3
 # Airport and city lookups change rarely; one cached answer serves every search of the same keyword.
 _AIRPORT_TTL_SECONDS = 6 * 3600.0
 _AIRPORT_CACHE_MAX = 2048
@@ -372,8 +382,29 @@ def airport_rows(keyword: str) -> list[dict]:
 
 
 def flight_search(body: dict) -> dict:
-    """One-way search. ``data`` is null when the supplier holds no inventory for the route and date."""
-    return _as_dict(call("POST", "/flight/search", body={**body, "language": LANGUAGE}))
+    """The flights of one leg of a trip, each with its lowest price. ``data`` is null when the supplier holds no
+    inventory for the route and date.
+
+    A search of more than one leg asks every direction at once, and the first one for a route can outlast the
+    platform's 30 seconds. The supplier keeps what it had found by then, so the same search sent again answers
+    in a few seconds: in live probes a round trip nobody had searched answered on the second or third sending.
+    A search the platform timed out is therefore sent again, ``_SEARCH_ATTEMPTS`` times in all."""
+    request = {**body, "language": LANGUAGE}
+    for _attempt in range(_SEARCH_ATTEMPTS - 1):
+        try:
+            return _as_dict(call("POST", "/flight/search", body=request))
+        except _common.ApiError as exc:
+            if exc.code != _DOWNSTREAM_TIMEOUT:
+                raise
+    return _as_dict(call("POST", "/flight/search", body=request))
+
+
+def flight_fares(price_key: str) -> dict:
+    """The fares on sale for one whole itinerary, given the price key a search returned for its last leg: the
+    same shape as a search answer, with one flight that holds every leg. ``data`` is null when the itinerary is
+    not sold as searched. A round trip or a multi-city trip can be priced live only through one of these fares:
+    verify refuses the search's own key for them."""
+    return _as_dict(call("POST", "/flight/cabin", body={"priceKey": price_key, "language": LANGUAGE}))
 
 
 def flight_verify(price_key: str) -> dict:

@@ -4,6 +4,9 @@ Every priced thing a search returns that can be ordered (a hotel rate, a flight 
 remembered here under a quote_id. place_order takes quote ids only, so the facts and the USD price of an order
 come from what the caller was actually shown, never from numbers the model retypes.
 
+A flight picked for one leg of a round trip or a multi-city search is remembered the same way (FLIGHT_CHOICE). It
+cannot be ordered: it carries the search on to the flights of the next leg.
+
 An entry belongs to the caller it was shown to, expires after half an hour, and lives in this process: a restart
 forgets every quote and the caller searches again. The table is shared by the tool threads, so every access is
 under one lock, and each caller and the table as a whole are capped, so one caller cannot evict everyone else.
@@ -35,7 +38,10 @@ QUOTE_ID_RE = re.compile(r"Q[0-9A-F]{8}")
 
 HOTEL = "HOTEL"
 FLIGHT = "FLIGHT"
+FLIGHT_CHOICE = "FLIGHT_CHOICE"
 EVENT_TICKET = "EVENT_TICKET"
+
+ONE_WAY, ROUND_TRIP, MULTI_CITY = "ONE_WAY", "ROUND_TRIP", "MULTI_CITY"
 
 _UNKNOWN = ApiError(
     "quote_unknown", "That quote is unknown or has expired. Search again for fresh quote ids.")
@@ -67,6 +73,7 @@ class FlightLeg:
     depart_local: datetime
     arrive_local: datetime
     cabin: str | None
+    journey: int = 1  # which leg of the trip this flight belongs to: 1 is the way out
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,20 @@ class FlightFare:
     price_key: str
     # The dearest fare the travel standard allowed in the search that showed this one (standard.fare_limit).
     fare_limit: Decimal | None = None
+    trip_kind: str = ONE_WAY
+    # Flying minutes of each leg of the trip, for the cabin rule of the travel standard. None: not known.
+    flying: tuple[int | None, ...] = ()
+
+
+@dataclass(frozen=True)
+class FlightChoice:
+    """The flights picked so far in a round trip or a multi-city search, the newest last."""
+
+    search: dict  # the supplier request of the whole trip, sent again for each leg
+    journey_ids: tuple[str, ...]  # the supplier's ids of the picked flights, in leg order
+    legs: tuple[FlightLeg, ...]
+    flying: tuple[int | None, ...]
+    fare_limit: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -98,7 +119,7 @@ class EventListing:
 class Quote:
     owner: tuple[str | None, str]
     kind: str
-    facts: HotelRate | FlightFare | EventListing
+    facts: HotelRate | FlightFare | FlightChoice | EventListing
     expires_at: float
 
 
@@ -112,7 +133,7 @@ def _owner() -> tuple[str | None, str]:
     return current_secret_scope_home(), _common.caller_id()
 
 
-def remember(kind: str, facts: HotelRate | FlightFare | EventListing) -> str:
+def remember(kind: str, facts: HotelRate | FlightFare | FlightChoice | EventListing) -> str:
     """A new quote id for what the caller is being shown now. Bound to the caller's identity."""
     owner = _owner()
     now = time.monotonic()

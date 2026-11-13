@@ -1,0 +1,583 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": {
+  "flight": [
+   {
+    "journeys": [
+     {
+      "journeyId": "5687d9fc57e4deceeb993a4933c4b5e9",
+      "origin": "TYO",
+      "originName": "Tokyo",
+      "originDate": "2026-12-20",
+      "originTime": "08:30",
+      "destination": "TPE",
+      "destinationName": "Taipei",
+      "destinationDate": "2026-12-20",
+      "destinationTime": "11:50",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "4h 20m",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "GK0013"
+      ],
+      "marketingFlightNumberList": [
+       "GK0013"
+      ],
+      "airSegmentList": [
+       "20261220-NRT-TPE-GK0013"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 2,
+      "priceKey": "leg2-GK0013-1",
+      "productType": "1",
+      "cabin": [
+       "X",
+       "E1"
+      ],
+      "cabinClass": [
+       "economy",
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 228,
+      "totalTax": 29,
+      "totalServiceFee": 0,
+      "totalSalePrice": 257,
+      "currency": "USD",
+      "ticketingAirline": "TR",
+      "ticketTime": 120,
+      "maxCount": 1,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null,
+       "passengerTypeLimit": null,
+       "allowDocumentType": null,
+       "allowBuyNationality": null,
+       "prohibitBuyNationality": null
+      },
+      "baggageRules": [
+       {
+        "segmentId": "20261220-NRT-TPE-GK0013",
+        "passengerType": "adult",
+        "portable": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       },
+       {
+        "segmentId": "20261216-TPE-NRT-TR0866",
+        "passengerType": "adult",
+        "portable": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       }
+      ],
+      "avgPrice": 257
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   },
+   {
+    "journeys": [
+     {
+      "journeyId": "ab0a6612e75fec5138e4093b546fbe54",
+      "origin": "TYO",
+      "originName": "Tokyo",
+      "originDate": "2026-12-20",
+      "originTime": "05:00",
+      "destination": "TPE",
+      "destinationName": "Taipei",
+      "destinationDate": "2026-12-20",
+      "destinationTime": "07:55",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "3h 55m",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "IT0217"
+      ],
+      "marketingFlightNumberList": [
+       "IT0217"
+      ],
+      "airSegmentList": [
+       "20261220-HND-TPE-IT0217"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 2,
+      "priceKey": "leg2-IT0217-1",
+      "productType": "1",
+      "cabin": [
+       "X",
+       "O"
+      ],
+      "cabinClass": [
+       "economy",
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 196,
+      "totalTax": 75,
+      "totalServiceFee": 0,
+      "totalSalePrice": 271,
+      "currency": "USD",
+      "ticketingAirline": "TR",
+      "ticketTime": 120,
+      "maxCount": 1,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null,
+       "passengerTypeLimit": null,
+       "allowDocumentType": null,
+       "allowBuyNationality": null,
+       "prohibitBuyNationality": null
+      },
+      "baggageRules": [
+       {
+        "segmentId": "20261220-HND-TPE-IT0217",
+        "passengerType": "adult",
+        "portable": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       },
+       {
+        "segmentId": "20261216-TPE-NRT-TR0866",
+        "passengerType": "adult",
+        "portable": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       }
+      ],
+      "avgPrice": 271
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   },
+   {
+    "journeys": [
+     {
+      "journeyId": "6c72fcd2c88b41df9d025ac264fbd10f",
+      "origin": "TYO",
+      "originName": "Tokyo",
+      "originDate": "2026-12-20",
+      "originTime": "22:05",
+      "destination": "TPE",
+      "destinationName": "Taipei",
+      "destinationDate": "2026-12-21",
+      "destinationTime": "01:25",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "4h 20m",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "MM0627"
+      ],
+      "marketingFlightNumberList": [
+       "MM0627"
+      ],
+      "airSegmentList": [
+       "20261220-NRT-TPE-MM0627"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 2,
+      "priceKey": "leg2-MM0627-1",
+      "productType": "1",
+      "cabin": [
+       "X",
+       "Q"
+      ],
+      "cabinClass": [
+       "economy",
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 205,
+      "totalTax": 66,
+      "totalServiceFee": 0,
+      "totalSalePrice": 271,
+      "currency": "USD",
+      "ticketingAirline": "TR",
+      "ticketTime": 120,
+      "maxCount": 1,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null,
+       "passengerTypeLimit": null,
+       "allowDocumentType": null,
+       "allowBuyNationality": null,
+       "prohibitBuyNationality": null
+      },
+      "baggageRules": [
+       {
+        "segmentId": "20261220-NRT-TPE-MM0627",
+        "passengerType": "adult",
+        "portable": {
+         "number": 1,
+         "weight": 7,
+         "unit": "KG",
+         "size": "",
+         "description": "1PC 7KG"
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       },
+       {
+        "segmentId": "20261216-TPE-NRT-TR0866",
+        "passengerType": "adult",
+        "portable": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        },
+        "checkIn": {
+         "number": 0,
+         "weight": -1,
+         "unit": "KG",
+         "size": "",
+         "description": "0PC "
+        }
+       }
+      ],
+      "avgPrice": 271
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   },
+   {
+    "journeys": [
+     {
+      "journeyId": "deaeb119d98cb9625f626235d0915c3e",
+      "origin": "TYO",
+      "originName": "Tokyo",
+      "originDate": "2026-12-20",
+      "originTime": "17:45",
+      "destination": "TPE",
+      "destinationName": "Taipei",
+      "destinationDate": "2026-12-20",
+      "destinationTime": "20:55",
+      "isStopOver": 0,
+      "transferCount": 0,
+      "journeysTime": "4h 10m",
+      "stopOverDuration": 0,
+      "totalStopOverCount": 0,
+      "flightNumberList": [
+       "CI0105"
+      ],
+      "marketingFlightNumberList": [
+       "CI0105"
+      ],
+      "airSegmentList": [
+       "20261220-NRT-TPE-CI0105"
+      ],
+      "luggageExt": [],
+      "travelInfo": [],
+      "isCabinOut": null
+     }
+    ],
+    "offerPriceList": [
+     {
+      "tripType": 2,
+      "priceKey": "leg2-CI0105-1",
+      "productType": "3",
+      "cabin": [
+       "N",
+       "N"
+      ],
+      "cabinClass": [
+       "economy",
+       "economy"
+      ],
+      "cabinTag": "",
+      "purchasePlatformId": 2,
+      "totalTicketPrice": 307,
+      "totalTax": 211,
+      "totalServiceFee": 0,
+      "totalSalePrice": 518,
+      "currency": "USD",
+      "ticketingAirline": "",
+      "ticketTime": -240,
+      "maxCount": 4,
+      "salesPolicyId": 0,
+      "isInternational": 1,
+      "isIntercontinental": 0,
+      "salesLimit": {
+       "ageLimit": null,
+       "passengerTypeLimit": null,
+       "allowDocumentType": null,
+       "allowBuyNationality": null,
+       "prohibitBuyNationality": null
+      },
+      "baggageRules": null,
+      "avgPrice": 518
+     }
+    ],
+    "policyBlocked": null,
+    "policyBlockReason": null
+   }
+  ],
+  "segments": {
+   "20261220-NRT-TPE-GK0013": {
+    "segmentId": "20261220-NRT-TPE-GK0013",
+    "flightNumber": "GK0013",
+    "marketingFlightNumber": "GK0013",
+    "aircraftCode": "32Q",
+    "airlineName": "Jetstar Japan",
+    "airlineCode": "GK",
+    "airlineIcon": "",
+    "departure": "TYO",
+    "departureName": "Tokyo",
+    "departureAirport": "NRT",
+    "departureAirportName": "Narita International Airport",
+    "departureDate": "2026-12-20",
+    "departureTime": "08:30",
+    "departureTerminal": "3",
+    "arrival": "TPE",
+    "arrivalName": "Taipei",
+    "arrivalAirport": "TPE",
+    "arrivalAirportName": "Taiwan Taoyuan International Airport",
+    "arrivalTerminal": "1",
+    "arrivalDate": "2026-12-20",
+    "arrivalTime": "11:50",
+    "flightDuration": "4h 20m",
+    "distance": 1356,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261216-TPE-NRT-TR0866": {
+    "segmentId": "20261216-TPE-NRT-TR0866",
+    "flightNumber": "TR0866",
+    "marketingFlightNumber": "TR0866",
+    "aircraftCode": "789",
+    "airlineName": "Scoot",
+    "airlineCode": "TR",
+    "airlineIcon": "",
+    "departure": "TPE",
+    "departureName": "Taipei",
+    "departureAirport": "TPE",
+    "departureAirportName": "Taiwan Taoyuan International Airport",
+    "departureDate": "2026-12-16",
+    "departureTime": "06:50",
+    "departureTerminal": "1",
+    "arrival": "TYO",
+    "arrivalName": "Tokyo",
+    "arrivalAirport": "NRT",
+    "arrivalAirportName": "Narita International Airport",
+    "arrivalTerminal": "1",
+    "arrivalDate": "2026-12-16",
+    "arrivalTime": "10:55",
+    "flightDuration": "3h 5m",
+    "distance": 1330,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261220-HND-TPE-IT0217": {
+    "segmentId": "20261220-HND-TPE-IT0217",
+    "flightNumber": "IT0217",
+    "marketingFlightNumber": "IT0217",
+    "aircraftCode": "320",
+    "airlineName": "Tigerair Taiwan Co. Ltd",
+    "airlineCode": "IT",
+    "airlineIcon": "",
+    "departure": "TYO",
+    "departureName": "Tokyo",
+    "departureAirport": "HND",
+    "departureAirportName": "Haneda Airport",
+    "departureDate": "2026-12-20",
+    "departureTime": "05:00",
+    "departureTerminal": "T3",
+    "arrival": "TPE",
+    "arrivalName": "Taipei",
+    "arrivalAirport": "TPE",
+    "arrivalAirportName": "Taiwan Taoyuan International Airport",
+    "arrivalTerminal": "T1",
+    "arrivalDate": "2026-12-20",
+    "arrivalTime": "07:55",
+    "flightDuration": "3h 55m",
+    "distance": 0,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261220-NRT-TPE-MM0627": {
+    "segmentId": "20261220-NRT-TPE-MM0627",
+    "flightNumber": "MM0627",
+    "marketingFlightNumber": "MM0627",
+    "aircraftCode": "32N",
+    "airlineName": "Peach Aviation Limited",
+    "airlineCode": "MM",
+    "airlineIcon": "",
+    "departure": "TYO",
+    "departureName": "Tokyo",
+    "departureAirport": "NRT",
+    "departureAirportName": "Narita International Airport",
+    "departureDate": "2026-12-20",
+    "departureTime": "22:05",
+    "departureTerminal": "T1",
+    "arrival": "TPE",
+    "arrivalName": "Taipei",
+    "arrivalAirport": "TPE",
+    "arrivalAirportName": "Taiwan Taoyuan International Airport",
+    "arrivalTerminal": "T1",
+    "arrivalDate": "2026-12-21",
+    "arrivalTime": "01:25",
+    "flightDuration": "4h 20m",
+    "distance": 0,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   },
+   "20261220-NRT-TPE-CI0105": {
+    "segmentId": "20261220-NRT-TPE-CI0105",
+    "flightNumber": "CI0105",
+    "marketingFlightNumber": "CI0105",
+    "aircraftCode": "333",
+    "airlineName": "China Airlines",
+    "airlineCode": "CI",
+    "airlineIcon": "",
+    "departure": "TYO",
+    "departureName": "Tokyo",
+    "departureAirport": "NRT",
+    "departureAirportName": "Narita International Airport",
+    "departureDate": "2026-12-20",
+    "departureTime": "17:45",
+    "departureTerminal": "2",
+    "arrival": "TPE",
+    "arrivalName": "Taipei",
+    "arrivalAirport": "TPE",
+    "arrivalAirportName": "Taiwan Taoyuan International Airport",
+    "arrivalTerminal": "2",
+    "arrivalDate": "2026-12-20",
+    "arrivalTime": "20:55",
+    "flightDuration": "4h 10m",
+    "distance": 1330,
+    "meals": null,
+    "wifi": null,
+    "isShare": false,
+    "operatingAirline": "",
+    "operatingAirlineCode": "",
+    "operatingFlightNumber": "",
+    "luggageType": null,
+    "luggageExt": null,
+    "travelText": null,
+    "stopOver": []
+   }
+  },
+  "queryTime": "2026-11-14 01:00:42",
+  "policyKey": "",
+  "platformOrderNotes": []
+ }
+}

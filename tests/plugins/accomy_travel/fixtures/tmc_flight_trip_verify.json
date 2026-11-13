@@ -1,0 +1,312 @@
+{
+ "code": "0",
+ "message": "success",
+ "data": {
+  "offerData": {
+   "tripType": 2,
+   "priceKey": "fare-1",
+   "productType": "3",
+   "cabin": [
+    "W",
+    "E1"
+   ],
+   "cabinClass": [
+    "economy",
+    "economy"
+   ],
+   "cabinTag": null,
+   "purchasePlatformId": 2,
+   "totalTicketPrice": 236,
+   "totalTax": 29,
+   "totalServiceFee": 0,
+   "totalSalePrice": 265,
+   "currency": "USD",
+   "ticketingAirline": "TR",
+   "ticketTime": 2880,
+   "maxCount": 3,
+   "salesPolicyId": 0,
+   "isInternational": 1,
+   "isIntercontinental": 0,
+   "salesLimit": {
+    "ageLimit": null,
+    "passengerTypeLimit": null,
+    "allowDocumentType": null,
+    "allowBuyNationality": null,
+    "prohibitBuyNationality": null
+   },
+   "priceDetail": [
+    {
+     "passengerType": "adult",
+     "fareBasisCode": "",
+     "price": 236,
+     "tax": 29,
+     "serviceFee": 0,
+     "salePrice": 265,
+     "number": 1,
+     "taxDetail": null,
+     "farePriceType": "0",
+     "accountCode": ""
+    }
+   ],
+   "baggageRules": [
+    {
+     "segmentId": "20261220-NRT-TPE-GK0013",
+     "passengerType": "adult",
+     "portable": {
+      "number": -1,
+      "weight": -1,
+      "unit": "KG",
+      "size": "",
+      "description": ""
+     },
+     "checkIn": {
+      "number": 0,
+      "weight": 0,
+      "unit": "KG",
+      "size": "",
+      "description": ""
+     }
+    },
+    {
+     "segmentId": "20261216-TPE-NRT-TR0866",
+     "passengerType": "adult",
+     "portable": {
+      "number": -1,
+      "weight": -1,
+      "unit": "KG",
+      "size": "",
+      "description": ""
+     },
+     "checkIn": {
+      "number": 0,
+      "weight": 0,
+      "unit": "KG",
+      "size": "",
+      "description": ""
+     }
+    }
+   ],
+   "refundRules": [
+    {
+     "rules": {
+      ">0": -1,
+      "<0": -1
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "refundOriginalText": null,
+     "segmentId": "20261220-NRT-TPE-GK0013"
+    },
+    {
+     "rules": {
+      ">0": -1,
+      "<0": -1
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "refundOriginalText": null,
+     "segmentId": "20261216-TPE-NRT-TR0866"
+    }
+   ],
+   "changeRules": [
+    {
+     "rules": {
+      ">0": -1,
+      "<0": -1
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "changeOriginalText": null,
+     "segmentId": "20261220-NRT-TPE-GK0013"
+    },
+    {
+     "rules": {
+      ">0": -1,
+      "<0": -1
+     },
+     "rulerItemList": [
+      {
+       "beforeAfter": true,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      },
+      {
+       "beforeAfter": false,
+       "chargeFee": -1,
+       "dayCount": 0,
+       "hourCount": 0,
+       "rulerTime": null
+      }
+     ],
+     "passengerType": "adult",
+     "changeOriginalText": null,
+     "segmentId": "20261216-TPE-NRT-TR0866"
+    }
+   ],
+   "avgPrice": 265
+  },
+  "journeys": [
+   {
+    "journeyId": "1970c00c057dd956340f8516b93588ed",
+    "origin": "TPE",
+    "originName": "Taipei",
+    "originDate": "2026-12-16",
+    "originTime": "06:50",
+    "destination": "TYO",
+    "destinationName": "Tokyo",
+    "destinationDate": "2026-12-16",
+    "destinationTime": "10:55",
+    "journeysTime": "3h 5m",
+    "isStopOver": 0,
+    "transferCount": 0,
+    "flightNumberList": [
+     "TR0866"
+    ],
+    "airSegmentList": [
+     {
+      "segmentId": "20261216-TPE-NRT-TR0866",
+      "flightNumber": "TR0866",
+      "marketingFlightNumber": null,
+      "aircraftCode": "320",
+      "airlineName": "Scoot",
+      "airlineCode": "TR",
+      "airlineIcon": "",
+      "departure": "TPE",
+      "departureName": "Taipei",
+      "departureAirport": "TPE",
+      "departureAirportName": "Taiwan Taoyuan International Airport",
+      "departureDate": "2026-12-16",
+      "departureTime": "06:50",
+      "departureTerminal": "T1",
+      "arrival": "TYO",
+      "arrivalName": "Tokyo",
+      "arrivalAirport": "NRT",
+      "arrivalAirportName": "Narita International Airport",
+      "arrivalTerminal": "T1",
+      "arrivalDate": "2026-12-16",
+      "arrivalTime": "10:55",
+      "flightDuration": "3h 5m",
+      "distance": 0,
+      "meals": null,
+      "wifi": null,
+      "isShare": false,
+      "operatingAirline": "",
+      "operatingAirlineCode": "",
+      "operatingFlightNumber": "",
+      "luggageType": null,
+      "luggageExt": null,
+      "travelText": null,
+      "stopOver": []
+     }
+    ],
+    "luggageExt": [],
+    "travelInfo": []
+   },
+   {
+    "journeyId": "5687d9fc57e4deceeb993a4933c4b5e9",
+    "origin": "TYO",
+    "originName": "Tokyo",
+    "originDate": "2026-12-20",
+    "originTime": "08:30",
+    "destination": "TPE",
+    "destinationName": "Taipei",
+    "destinationDate": "2026-12-20",
+    "destinationTime": "11:50",
+    "journeysTime": "4h 20m",
+    "isStopOver": 0,
+    "transferCount": 0,
+    "flightNumberList": [
+     "GK0013"
+    ],
+    "airSegmentList": [
+     {
+      "segmentId": "20261220-NRT-TPE-GK0013",
+      "flightNumber": "GK0013",
+      "marketingFlightNumber": null,
+      "aircraftCode": "32Q",
+      "airlineName": "Jetstar Japan",
+      "airlineCode": "GK",
+      "airlineIcon": "",
+      "departure": "TYO",
+      "departureName": "Tokyo",
+      "departureAirport": "NRT",
+      "departureAirportName": "Narita International Airport",
+      "departureDate": "2026-12-20",
+      "departureTime": "08:30",
+      "departureTerminal": "T3",
+      "arrival": "TPE",
+      "arrivalName": "Taipei",
+      "arrivalAirport": "TPE",
+      "arrivalAirportName": "Taiwan Taoyuan International Airport",
+      "arrivalTerminal": "T1",
+      "arrivalDate": "2026-12-20",
+      "arrivalTime": "11:50",
+      "flightDuration": "4h 20m",
+      "distance": 0,
+      "meals": null,
+      "wifi": null,
+      "isShare": false,
+      "operatingAirline": "",
+      "operatingAirlineCode": "",
+      "operatingFlightNumber": "",
+      "luggageType": null,
+      "luggageExt": null,
+      "travelText": null,
+      "stopOver": []
+     }
+    ],
+    "luggageExt": [],
+    "travelInfo": []
+   }
+  ],
+  "bookingNotice": "<ol><li><strong>Ticket Validity：</strong>The ticket validity period commences from the day after the ticket is purchased and is valid for one year. If a passenger requests a ticket change resulting in",
+  "travelPolicy": null
+ }
+}

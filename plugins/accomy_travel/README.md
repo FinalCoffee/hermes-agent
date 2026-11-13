@@ -23,8 +23,8 @@ is offered to the model only when the secrets it needs are set; the order tools 
 | `get_hotel_details` | Details for one hotel | `TMC_APP_KEY`, `TMC_APP_SECRET` |
 | `get_hotel_rooms` | Room types and rates for one hotel | `TMC_APP_KEY`, `TMC_APP_SECRET` |
 | `search_airports` | Airport lookup by city or code | `TMC_APP_KEY`, `TMC_APP_SECRET` |
-| `search_flights` | Flight offers (TMC) | `TMC_APP_KEY`, `TMC_APP_SECRET` |
-| `get_flight_offer` | Fare details for one offer | `TMC_APP_KEY`, `TMC_APP_SECRET` |
+| `search_flights` | Flight offers (TMC): one way, round trip or multi-city, a leg at a time | `TMC_APP_KEY`, `TMC_APP_SECRET` |
+| `get_flight_offer` | Live price and fare rules for one offer, a whole trip included | `TMC_APP_KEY`, `TMC_APP_SECRET` |
 | `search_events` | Events and tickets (Seat Unique) | `SEATUNIQUE_API_TOKEN` |
 | `get_event_tickets` | Ticket categories for one event | `SEATUNIQUE_API_TOKEN` |
 | `research_web` | Public-web answers with source URLs (Brave) | `BRAVE_SEARCH_API_KEY` |
@@ -45,14 +45,37 @@ shown, bound to that caller, capped per caller and overall, and in memory: a res
 caller searches again. `place_order` takes quote ids only, and builds the order from what was shown, so no price
 or supplier id comes from the model.
 
+**Round trips and multi-city trips.** A journey out and back is one round-trip search (`return_date`), and a
+journey that comes home from another city, such as Taipei to Tokyo and then Osaka to Kaohsiung, is one multi-city
+search (`more_legs`, up to 4 legs in all). The policy and the tool description tell the model never to search or
+order the directions as separate one-way trips, because the supplier sells the whole trip for far less: in a
+live probe in November 2026, Hong Kong to London and back cost 765 US dollars as a round trip against 893 as
+two one-way fares. TMC answers such a search one leg at a time, and so does the tool:
+
+1. The first call returns the flights of leg 1. Each has an `option_id` and `trip_price_from`, the lowest price
+   of the whole trip that uses that flight. It is not the price of that flight.
+2. A call with `continue_from` set to the chosen `option_id` returns the flights of the next leg. The trip, its
+   dates, the passengers and the cabin stay as first searched: a call that passes any of them with
+   `continue_from` is refused, and changing one means searching the whole trip again. A flight the trip could
+   not go on from (an incomplete record, or a price with no US dollar rate) is not listed on an earlier leg.
+3. The flights of the last leg carry a `quote_id` and the price of the whole trip with the flights chosen.
+
+An `option_id` is remembered like a quote (same caller, 30 minutes), but it is not a fare: `get_flight_offer`
+and `place_order` refuse it. For a trip, `get_flight_offer` first reads the fares TMC sells for the finished
+itinerary and verifies the cheapest one that still holds (up to 3 are tried), because TMC's price check refuses
+the key the search itself returned. The live price of a trip is often a little above the searched one, and the
+quote then stands for the live price. An order for a trip is one flight item of kind `ROUND_TRIP` or
+`MULTI_CITY`, with each flight stored under its leg. A place without an airport of its own is searched by the
+nearest city that has one (Kyoto by Osaka).
+
 **Placing an order.** `place_order` needs a private Telegram chat with a real sender, the lead traveller's name
 and a phone or an email. Flights need every passenger's name; hotels need at least the lead guest. The order is
 stored as `SIMULATED`: its items are confirmed in the database with fulfilment `NOT_APPLICABLE`, and no
 `o_supplier_request` row is ever written for it. The database refuses a supplier request for a simulated order.
 Placing the same quotes, with the same details, on the same calendar day (UTC) returns the first order.
 
-**Suppliers are only read.** The TMC client enforces the same line on the wire: it sends only the session, lookup, search and price-check
-endpoints listed in `tmc_client._READ_ENDPOINTS`, and refuses any other path (create order, pay, cancel, change,
+**Suppliers are only read.** The TMC client enforces the same line on the wire: it sends only the session, lookup, search, itinerary-fare and
+price-check endpoints listed in `tmc_client._READ_ENDPOINTS`, and refuses any other path (create order, pay, cancel, change,
 refund) before a request is made, with whatever key is configured. The Seat Unique client only reads. Hotels
 and flights are searched through these tools only: the policy tells the model never to find or price them with
 `research_web`.
@@ -316,7 +339,7 @@ TMC tenant's own travel policies, so the standard is the same under any TMC key.
 | Hotel, per room for any night | 200 USD. 300 USD in London, Paris and New York (TMC city codes 2114, 2734 and 2621) |
 | Flight with less than 8 hours of flying time | Economy only |
 | Flight with 8 hours of flying time or more | Economy, premium economy or business. Never first class |
-| Fare | At most 70% above the cheapest fare of the same search (same route, date and cabin) |
+| Fare | At most 70% above the cheapest fare of the same search (same trip, dates and cabin) |
 
 - A room rate is within the hotel budget when no night of the stay costs more for a room, and the stay's total
   (which carries any taxes) does not average more per room per night. `search_hotels` judges a hotel by its
@@ -324,6 +347,10 @@ TMC tenant's own travel policies, so the standard is the same under any TMC key.
   that hotels further away were not checked.
 - Flying time is the flights' own durations added up, so the wait at a stop is not counted. A flight whose
   duration the supplier does not give counts as under 8 hours.
+- On a round trip or a multi-city trip the cabin rule holds each flight's cabin against the flying time of its
+  own leg, so a trip searched in premium economy or business needs 8 hours of flying time on every leg. The fare
+  rule compares prices of the whole trip: the limit is set by the cheapest trip of the first leg's search, and
+  the later legs keep it.
 - `search_hotels`, `get_hotel_rooms` and `search_flights` return only what is within the standard and count the
   rest as `outside_travel_standard`. What is left out gets no `quote_id`, so it cannot be ordered. When
   `get_flight_offer` re-prices a fare above its search's limit, the fare loses its quote.
@@ -364,7 +391,11 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
 - Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
 - Prices are converted with a fixed demo table of reference rates, so converted prices are approximate.
 - A supplier call waits 20 seconds for its answer. A flight search waits 60, because a route nobody has
-  searched lately takes TMC about 20 seconds to price.
+  searched lately takes TMC about 20 seconds to price, and a flight price check waits 40, because the airline's
+  own answer for a round trip took up to 25. The TMC platform itself gives up on a search after 30
+  seconds, which the first search of a round trip can exceed: such a search is sent up to 3 times, since TMC
+  keeps what it had found and the next sending answers in a few seconds.
+- A flight trip has at most 4 legs. For the live price of a trip, at most 3 of its fares are tried.
 - Hotels and flights outside the travel standard are not offered and cannot be ordered (see Travel standard).
 - Supplier environments may be sandboxes, so prices and availability are indicative.
 - Google Routes is not enabled. Directions are Google Maps links.

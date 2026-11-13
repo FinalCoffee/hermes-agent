@@ -22,7 +22,8 @@ HOTEL_CITY_NIGHTLY_BUDGET = Decimal(300)
 # another city of the same name, or with no city code, gets the general budget.
 HOTEL_BUDGET_CITIES = {"2114": "London", "2734": "Paris", "2621": "New York"}
 
-# A fare may cost at most this much more than the cheapest fare of the same search.
+# A fare may cost at most this much more than the cheapest fare of the same search. For a round trip or a
+# multi-city trip both are prices of the whole trip.
 FARE_BUDGET_PERCENTAGE = 70
 
 ECONOMY = "economy"
@@ -62,6 +63,6 @@ def describe() -> str:
         f"- Flights under {PREMIUM_CABIN_MIN_HOURS} hours of flying time (time on the ground at a stop is not "
         "counted): economy only.\n"
         f"- Flights of {PREMIUM_CABIN_MIN_HOURS} hours or more: economy, {premium}. Never first class.\n"
-        f"- Fares: at most {FARE_BUDGET_PERCENTAGE}% above the cheapest fare of the same search (same route, "
-        "date and cabin).\n"
+        f"- Fares: at most {FARE_BUDGET_PERCENTAGE}% above the cheapest fare of the same search (same trip, "
+        "dates and cabin).\n"
     )

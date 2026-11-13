@@ -14,7 +14,7 @@ import re
 
 from gateway.config import Platform
 
-from . import _common
+from . import _common, welcome
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +34,22 @@ GLOBAL_TURNS_PER_DAY = 5000
 # own, and that merge measured at 4 MB. One message's worth of text is enough for any travel request.
 MAX_TEXT_CHARS = 4096
 
-# The session-control commands a user may run without spending a turn. The match is exact: "/start please" is a
-# turn. The optional @botname suffix is accepted from any bot, since a command typed in a group names the bot it
-# is for and the suffix changes nothing about what runs. Any other text that starts with "/" is an ordinary turn,
-# because unknown slash text falls through to the model. They cost no model call but each one is answered, so
-# they have a loose budget of their own, per sender and in total: past it the bot stops replying instead of
-# echoing a flood.
+# Commands that cost no model call but are answered, so they have a loose budget of their own, per sender and in
+# total: past it the bot stops replying instead of echoing a flood. /new and /stop are run by core. /start (with
+# or without a deep-link payload, which Telegram sends as "/start <payload>"), /help, /whoami and /commands are
+# answered by welcome.py and skipped here. The optional @botname suffix is accepted from any bot, since a command
+# typed in a group names the bot it is for. Any other text that starts with "/" is an ordinary turn, because
+# unknown slash text falls through to the model.
 COMMANDS_PER_MINUTE = 20
 GLOBAL_COMMANDS_PER_MINUTE = 120
-_EXEMPT_COMMAND_RE = re.compile(r"/(?:stop|new|start|help|whoami)(?:@[A-Za-z0-9_]+)?")
+_SESSION_COMMAND_RE = re.compile(r"/(?:stop|new)(?:@[A-Za-z0-9_]+)?")
+_START_RE = re.compile(r"/start(?:@[A-Za-z0-9_]+)?(?:\s+\S.*)?", re.DOTALL)
+_ANSWERED_RE = re.compile(r"/(?:help|whoami|commands)(?:@[A-Za-z0-9_]+)?")
+
+# A /start repeated inside this window draws nothing, so a double tap is one welcome; after it every /start is
+# welcomed again, whoever has been welcomed before.
+WELCOME_WINDOW_SECONDS = 3.0
+_welcome_limiter = _common.RateLimiter()
 
 # Platforms that are not a chat with a person: the hook fires for them too, and they are not limited here.
 _NOT_MESSAGING = frozenset({Platform.LOCAL, Platform.API_SERVER, Platform.WEBHOOK, Platform.MSGRAPH_WEBHOOK})
@@ -118,21 +125,45 @@ async def _send_notice(gateway, source, text: str) -> None:
         logger.warning("Could not deliver the travel limit notice", exc_info=True)
 
 
+async def _answer_command(gateway, event, source, kind: str) -> dict:
+    """Answer /start, /help, /whoami or /commands here, so core neither replies nor calls the model for them."""
+    if kind == "start" and _welcome_limiter.admit(
+        ((f"{_sender_key(source)}:welcome", 1, WELCOME_WINDOW_SECONDS),)
+    ) is not None:
+        return {"action": "skip", "reason": "accomy_welcome_repeat"}
+    await welcome.send(gateway, source, event, kind)
+    return {"action": "skip", "reason": f"accomy_{kind}"}
+
+
 async def gate_inbound(*, event, gateway=None, **_kwargs) -> dict | None:
     """``pre_gateway_dispatch``: None lets the message through; a skip drops it before auth and the model."""
     source = event.source
     if source.platform in _NOT_MESSAGING or not _is_admitted(gateway, source):
         return None
+    try:
+        return await _gate_admitted(gateway, event, source)
+    except Exception:
+        # A raising hook is treated by the gateway as no hook at all, which would let the message through
+        # uncounted. An admitted sender's message is dropped instead.
+        logger.exception("accomy ingress gate failed; message dropped")
+        return {"action": "skip", "reason": "accomy_gate_error"}
+
+
+async def _gate_admitted(gateway, event, source) -> dict | None:
     text = event.text or ""
     if len(text) > MAX_TEXT_CHARS:
         return await _drop(gateway, source, "length")
-    if _EXEMPT_COMMAND_RE.fullmatch(text.strip()):
+    stripped = text.strip()
+    start, answered = _START_RE.fullmatch(stripped), _ANSWERED_RE.fullmatch(stripped)
+    if start or answered or _SESSION_COMMAND_RE.fullmatch(stripped):
         if _gate_limiter.admit((
             (f"{_sender_key(source)}:commands", COMMANDS_PER_MINUTE, 60.0),
             ("global:commands", GLOBAL_COMMANDS_PER_MINUTE, 60.0),
-        )) is None:
-            return None
-        return {"action": "skip", "reason": "accomy_command_flood"}
+        )) is not None:
+            return {"action": "skip", "reason": "accomy_command_flood"}
+        if start or answered:
+            return await _answer_command(gateway, event, source, "start" if start else "help")
+        return None
     scope = _refused_by(_sender_key(source))
     if scope is None:
         return None

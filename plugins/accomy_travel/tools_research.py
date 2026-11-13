@@ -43,7 +43,8 @@ _RESEARCH_WEB_SCHEMA = {
     "description": (
         "Search the public web for current or factual information the travel tools cannot answer: visa and "
         "entry rules, government travel advisories, transport strikes and disruptions, news that affects a "
-        "trip, current prices, festivals and events, and other facts that change over time. Returns up to 8 "
+        "trip, current prices, festivals and events, and other facts that change over time. Never use it to "
+        "find or price hotels or flights: those come only from the hotel and flight tools. Returns up to 8 "
         "sources with title, url, hostname, date and snippets. Cite the urls you used in your answer. It "
         "refuses code, security, privacy and advanced-math requests. Use freshness to limit results by age."
     ),

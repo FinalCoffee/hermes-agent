@@ -11,6 +11,7 @@ The role is an ordinary one that may create schemas, like the application role o
 """
 
 import asyncio
+import dataclasses
 import re
 import secrets
 import shutil
@@ -242,7 +243,7 @@ def test_a_local_time_with_a_zone_is_refused(schema):
 
 
 def test_a_buyers_bookings_are_listed_newest_first(schema):
-    buyer = store.Buyer("telegram", secrets.token_hex(6))
+    buyer = store.Buyer("telegram", str(secrets.randbelow(10**12)))
     codes = [create(schema, order(buyer=buyer)).code for _ in range(3)]
 
     listed = run(schema, lambda conn: store.list_bookings(conn, buyer, limit=2))
@@ -278,8 +279,12 @@ def test_an_item_added_without_raising_the_total_is_refused(schema):
 def test_a_booking_without_items_is_refused(schema):
     with pytest.raises(asyncpg.CheckViolationError, match="at least one item"):
         _sql(schema, """
-            INSERT INTO o_booking (booking_code, buyer_channel, buyer_ref, locale_code, currency)
-            VALUES ($1, 'telegram', '1', 'en', 'USD')""", store.new_booking_code())
+            WITH customer AS (INSERT INTO o_customer (email) VALUES ('nobody@example.com') RETURNING id),
+                 trip AS (INSERT INTO o_trip (trip_code, customer_id, title)
+                          SELECT $2, id, 'Empty' FROM customer RETURNING id, customer_id)
+            INSERT INTO o_booking (booking_code, buyer_channel, buyer_ref, locale_code, currency, customer_id, trip_id)
+            SELECT $1, 'telegram', '1', 'en', 'USD', customer_id, id FROM trip""",
+             store.new_booking_code(), store.new_trip_code())
 
 
 def test_an_item_without_its_detail_is_refused(schema):
@@ -685,3 +690,165 @@ def test_the_cli_dry_run_reports_and_changes_nothing(monkeypatch, capsys):
             await conn.close()
 
     assert asyncio.run(schema_exists()) is False
+
+
+# ── Customers and trips ───────────────────────────────────────────────────────
+
+
+def _person():
+    return store.Buyer("telegram", str(secrets.randbelow(10**12)))
+
+
+def test_an_order_starts_a_trip_and_a_later_order_can_join_it(schema):
+    buyer = _person()
+    first = create(schema, order(flight(), buyer=buyer, client_key=None))
+    second = create(schema, dataclasses.replace(order(hotel(), buyer=buyer), trip_code=first.trip.code))
+    other = create(schema, order(tickets(), buyer=buyer))
+
+    trips = run(schema, lambda conn: store.list_trips(conn, buyer))
+    assert [t["trip_code"] for t in trips] == [other.trip.code, first.trip.code]
+    joined = trips[1]
+    assert [b["booking_code"] for b in joined["bookings"]] == [first.code, second.code]
+    assert [b["kinds"] for b in joined["bookings"]] == [["FLIGHT"], ["HOTEL"]]
+    assert (joined["starts_on"], joined["ends_on"], joined["status"]) == (date(2027, 3, 1), date(2027, 3, 4), "ACTIVE")
+    assert (second.trip.code, second.trip.title) == (first.trip.code, first.trip.title)
+
+
+def test_a_trip_takes_its_name_from_the_order_unless_one_is_given(schema):
+    buyer = _person()
+    unnamed = create(schema, order(hotel(), buyer=buyer))
+    named = create(schema, dataclasses.replace(order(hotel(), buyer=buyer), trip_title="  東京  賞櫻 "))
+
+    assert (unnamed.trip.title, named.trip.title) == ("Park Hotel Tokyo / Deluxe King", "東京 賞櫻")
+    assert re.fullmatch(r"TR[0-9A-HJKMNP-TV-Z]{12}", named.trip.code)
+
+
+def test_an_order_cannot_join_someone_elses_trip_or_a_closed_one(schema):
+    mine, theirs = _person(), _person()
+    their_trip = create(schema, order(buyer=theirs)).trip.code
+    my_trip = create(schema, order(buyer=mine)).trip.code
+    _sql(schema, "UPDATE o_trip SET status = 'COMPLETED' WHERE trip_code = $1", my_trip)
+
+    for code in (their_trip, my_trip, "TR000000000000"):
+        with pytest.raises(store.OrderError) as refused:
+            create(schema, dataclasses.replace(order(buyer=mine), trip_code=code))
+        assert refused.value.code == "no_trip"
+    assert [len(t["bookings"]) for t in run(schema, lambda conn: store.list_trips(conn, theirs))] == [1]
+
+
+def test_a_repeated_request_does_not_start_a_second_trip(schema):
+    buyer = _person()
+    key = secrets.token_hex(8)
+    first = create(schema, order(buyer=buyer, client_key=key))
+    again = create(schema, order(buyer=buyer, client_key=key))
+
+    assert (again.trip.code, again.replayed) == (first.trip.code, True)
+    assert len(run(schema, lambda conn: store.list_trips(conn, buyer))) == 1
+
+
+def test_one_telegram_account_is_one_customer_who_keeps_the_newest_contact(schema):
+    buyer = _person()
+    create(schema, order(buyer=buyer))
+    create(schema, dataclasses.replace(order(buyer=buyer), contact=store.Contact("Mei L.", "NEW@Example.com", None)))
+
+    by_account = run(schema, lambda conn: store.find_customers(conn, telegram_user_id=buyer.ref))
+    by_email = run(schema, lambda conn: store.find_customers(conn, email="new@example.COM"))
+    assert len(by_account) == 1 and [c["id"] for c in by_email] == [by_account[0]["id"]]
+    customer = by_account[0]
+    assert (customer["display_name"], customer["email"], customer["phone"]) == ("Mei L.", "NEW@Example.com", "+886900000000")
+    assert sum(len(t["bookings"]) for t in customer["trips"]) == 2
+    assert run(schema, lambda conn: store.find_customers(conn, email="old@example.com")) == []
+
+
+def test_a_booking_belongs_to_a_trip_of_its_own_customer(schema):
+    mine, theirs = create(schema, order(buyer=_person())), create(schema, order(buyer=_person()))
+    with pytest.raises(asyncpg.CheckViolationError, match="immutable"):
+        _sql(schema, "UPDATE o_booking SET trip_id = (SELECT trip_id FROM o_booking WHERE id = $2) WHERE id = $1",
+             mine.id, theirs.id)
+    with pytest.raises(asyncpg.CheckViolationError, match="immutable"):
+        _sql(schema, "UPDATE o_trip SET customer_id = (SELECT customer_id FROM o_booking WHERE id = $2) "
+                     "WHERE id = (SELECT trip_id FROM o_booking WHERE id = $1)", mine.id, theirs.id)
+
+
+def test_erasing_a_customer_erases_them_everywhere_and_keeps_the_orders(schema):
+    buyer = _person()
+    booking = create(schema, dataclasses.replace(order(buyer=buyer), trip_title="Mei's birthday trip"))
+
+    async def work(conn):
+        customer = (await store.find_customers(conn, telegram_user_id=buyer.ref))[0]
+        await db.with_tx(conn, lambda c: store.erase_customer(c, customer["id"], actor="test"))
+        row = await conn.fetchrow("SELECT * FROM o_customer WHERE id = $1", customer["id"])
+        kept = await conn.fetchrow(
+            "SELECT b.total_amount, b.buyer_ref, t.title FROM o_booking b JOIN o_trip t ON t.id = b.trip_id "
+            "WHERE b.id = $1", booking.id)
+        return dict(row), dict(kept), await store.find_customers(conn, telegram_user_id=buyer.ref)
+
+    row, kept, found_again = run(schema, work)
+    assert (row["telegram_user_id"], row["email"], row["display_name"], row["phone"]) == (None, None, None, None)
+    assert row["erased_at"] is not None and found_again == []
+    assert kept == {"total_amount": booking.total_amount, "buyer_ref": f"erased:{booking.code}", "title": "Trip"}
+
+
+def test_a_customer_cannot_be_erased_while_a_booking_still_names_them(schema):
+    buyer = _person()
+    create(schema, order(buyer=buyer))
+    with pytest.raises(asyncpg.CheckViolationError, match="one of their bookings is not"):
+        _sql(schema, """
+            UPDATE o_customer SET telegram_user_id = NULL, email = NULL, display_name = NULL, phone = NULL,
+                erased_at = clock_timestamp() WHERE telegram_user_id = $1""", buyer.ref)
+
+
+def test_two_identical_requests_at_once_start_one_trip(schema):
+    buyer = _person()
+    key = secrets.token_hex(8)
+
+    async def both():
+        async def one():
+            conn = await db.connect(DSN, schema=schema)
+            try:
+                return await db.with_tx(conn, lambda c: store.create_booking(c, order(buyer=buyer, client_key=key), actor="t"))
+            finally:
+                await conn.close()
+
+        return await asyncio.gather(one(), one())
+
+    a, b = asyncio.run(both())
+    trips = run(schema, lambda conn: conn.fetchval(
+        "SELECT count(*) FROM o_trip t JOIN o_customer c ON c.id = t.customer_id WHERE c.telegram_user_id = $1",
+        buyer.ref))
+    assert (a.code, a.trip.code, trips) == (b.code, b.trip.code, 1)
+
+
+def test_a_customer_known_only_by_email_is_one_customer(schema):
+    email = f"{secrets.token_hex(6)}@Example.com"
+    web = store.Buyer("web", "session-1")
+
+    async def both():
+        async def one(contact):
+            conn = await db.connect(DSN, schema=schema)
+            try:
+                new = dataclasses.replace(order(buyer=web), contact=contact)
+                return await db.with_tx(conn, lambda c: store.create_booking(c, new, actor="t"))
+            finally:
+                await conn.close()
+
+        return await asyncio.gather(one(store.Contact("A", email, None)), one(store.Contact("B", email.lower(), "+1 555 0100")))
+
+    asyncio.run(both())
+    found = run(schema, lambda conn: store.find_customers(conn, email=email.upper()))
+    assert len(found) == 1 and found[0]["phone"] == "+1 555 0100" and len(found[0]["trips"]) == 2
+
+
+def test_an_order_outside_telegram_needs_an_email_to_find_its_customer_by(schema):
+    new = dataclasses.replace(order(buyer=store.Buyer("web", "session-2")), contact=store.Contact("A", None, "+1 555 0100"))
+    with pytest.raises(store.OrderError) as refused:
+        create(schema, new)
+    assert refused.value.code == "no_customer"
+
+
+def test_a_rate_with_more_decimals_than_the_column_keeps_is_refused(schema):
+    item = dataclasses.replace(tickets("12.00"), conversion=store.FxConversion(
+        Decimal("9.00"), "GBP", Decimal("1.33333333333333"), datetime.fromisoformat("2026-11-13T00:00:00+00:00"), "test"))
+    with pytest.raises(store.OrderError) as refused:
+        create(schema, order(item))
+    assert refused.value.code == "bad_rate"

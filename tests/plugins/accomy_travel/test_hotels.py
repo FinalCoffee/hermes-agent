@@ -10,11 +10,12 @@ import copy
 import json
 import re
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from plugins.accomy_travel import _common, geo, tmc_client, tools_hotels
+from plugins.accomy_travel import _common, fx, geo, quotes, tmc_client, tools_hotels
 
 FIXTURES = Path(__file__).parent / "fixtures"
 APP_KEY = "app-key-for-tests"
@@ -66,6 +67,8 @@ class FakeTmc:
 def _hotel_state(monkeypatch):
     tmc_client._tokens.clear()
     tmc_client._airport_cache.clear()
+    tools_hotels._hotel_names.clear()
+    quotes._quotes.clear()
     monkeypatch.setattr(
         _common,
         "secret",
@@ -78,7 +81,9 @@ def _hotel_state(monkeypatch):
 
 
 def _install(monkeypatch, routes: dict) -> FakeTmc:
-    fake = FakeTmc(routes)
+    # The hotel's name comes from its detail page when search has not shown it, so every fake answers that read.
+    detail = ("GET", DETAIL_PATH)
+    fake = FakeTmc({detail: (200, _fixture("tmc_hotel_detail.json")), **routes})
     monkeypatch.setattr(_common, "request_json", fake)
     return fake
 
@@ -141,8 +146,8 @@ def test_search_sorts_by_distance_and_quotes_nightly_and_stay_totals(monkeypatch
 
     assert [hotel["hotel_id"] for hotel in hotels] == [10087697, 10102780, 10233942]
     first = hotels[0]
-    assert first["from_nightly_price"] == {"amount": 1.48, "currency": "USD"}
-    assert first["stay_total_price"] == {"amount": 2.96, "currency": "USD"}
+    assert first["from_nightly_price"] == {"amount": "1.48", "currency": "USD"}
+    assert first["stay_total_price"] == {"amount": "2.96", "currency": "USD"}
     assert first["stars"] == 4
     assert (
         first["map_url"]
@@ -188,7 +193,7 @@ def test_unpriced_rows_are_dropped_not_shown_as_free(monkeypatch):
     body = json.loads(tools_hotels.search_hotels(_search_args()))
 
     assert len(body["hotels"]) == 2
-    assert all(hotel["from_nightly_price"]["amount"] > 0 for hotel in body["hotels"])
+    assert all(Decimal(hotel["from_nightly_price"]["amount"]) > 0 for hotel in body["hotels"])
 
 
 def test_min_stars_is_sent_as_the_supplier_star_codes(monkeypatch):
@@ -344,10 +349,10 @@ def test_hotel_rooms_send_the_stay_party_and_price_each_plan(monkeypatch):
     room = body["room_types"][0]
     assert room["room_id"] == 50593980
     first_rate = room["rates"][0]
-    assert first_rate["total_price"] == {"amount": 2.96, "currency": "USD"}
-    assert first_rate["avg_nightly_price"] == {"amount": 1.48, "currency": "USD"}
+    assert first_rate["total_price"] == {"amount": "2.96", "currency": "USD"}
+    assert first_rate["avg_nightly_price"] == {"amount": "1.48", "currency": "USD"}
     assert first_rate["max_guests"] == 5
-    assert "Nothing is booked" in body["hint"]
+    assert "Only rates with a quote_id can be booked" in body["hint"]
 
 
 def test_hotel_rooms_refuse_a_party_that_does_not_split_evenly(monkeypatch):
@@ -429,3 +434,61 @@ def test_hotel_tools_are_gated_on_the_tmc_credentials_only():
         "get_hotel_details": (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV),
         "get_hotel_rooms": (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV),
     }
+
+
+def _rates_for(monkeypatch, *, currency: str | None = None, total: float | None = None) -> list[dict]:
+    """The room rates of the fixture hotel, optionally re-priced in another currency."""
+    payload = copy.deepcopy(_fixture("tmc_hotel_products.json")["data"])
+    for room in payload:
+        for product in room["products"]:
+            if currency is not None:
+                product["currency"] = currency
+            if total is not None:
+                product["totalSalePrice"] = total
+    _install(monkeypatch, {("POST", PRODUCTS_PATH): (200, {"code": "0", "data": payload})})
+    body = json.loads(tools_hotels.get_hotel_rooms(
+        {"hotel_id": 10235214, "check_in": _future(30), "check_out": _future(32), "adults": 2}))
+    return [rate for room in body["room_types"] for rate in room["rates"]]
+
+
+def test_a_shown_rate_is_remembered_with_what_an_order_needs(monkeypatch):
+    first_rate = _rates_for(monkeypatch)[0]
+
+    quote = quotes._quotes[first_rate["quote_id"]]
+    assert quote.kind == quotes.HOTEL
+    assert quote.owner[1] == "user-a"
+    assert quote.facts.hotel_id == 10235214
+    assert quote.facts.hotel_name == "Hotel Metropolitan Tokyo Marunouchi"
+    assert quote.facts.rate_plan_id == "5bb6fddc94044181aa3e760494f8bf80"
+    assert quote.facts.room_id == 50593980
+    assert (quote.facts.adults, quote.facts.rooms) == (2, 1)
+    assert quote.facts.total.amount == Decimal("2.96")
+
+
+def test_a_rate_in_another_currency_is_converted_and_marked_approximate(monkeypatch):
+    rate = _rates_for(monkeypatch, currency="GBP", total=100)[0]
+
+    expected = fx.to_usd(100, "GBP")
+    assert rate["total_price"] == {
+        "amount": str(expected.amount), "currency": "USD", "approximate": True,
+        "supplier_price": {"amount": "100", "currency": "GBP"}}
+    assert quotes._quotes[rate["quote_id"]].facts.total == expected
+
+
+def test_a_rate_in_a_currency_without_a_rate_is_shown_unconverted_and_cannot_be_ordered(monkeypatch):
+    rate = _rates_for(monkeypatch, currency="XYZ", total=100)[0]
+
+    assert rate["total_price"] == {"amount": "100.00", "currency": "XYZ", "unconverted": True}
+    assert "quote_id" not in rate
+    assert quotes._quotes == {}
+
+
+def test_hotel_search_prices_are_usd_strings_and_the_names_are_kept_for_rates(monkeypatch):
+    loc, loc_resp = _locations_route()
+    search, search_resp = _search_route()
+    _install(monkeypatch, {loc: loc_resp, search: search_resp})
+
+    body = json.loads(tools_hotels.search_hotels(_search_args()))
+
+    assert all(isinstance(hotel["from_nightly_price"]["amount"], str) for hotel in body["hotels"])
+    assert tools_hotels._hotel_names[body["hotels"][0]["hotel_id"]] == body["hotels"][0]["name"]

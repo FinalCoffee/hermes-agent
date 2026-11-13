@@ -1,6 +1,6 @@
 name: accomy
 version: 0.1.0
-description: "Accomy AI Travel: a Telegram travel-planning assistant that searches hotels, flights, events, places, weather and the public web. Search and pricing only; it cannot book, pay or cancel."
+description: "Accomy AI Travel: a Telegram travel-planning assistant that searches hotels, flights, events, places, weather and the public web. Prices in US dollars; it takes demonstration orders for hotels, flights and event tickets, which are recorded only: never sent to a supplier, and no payment is taken."
 author: Accomy
 license: proprietary
 env_requires:
@@ -22,5 +22,8 @@ env_requires:
     description: "Optional comma-separated Telegram numeric user IDs allowed to chat. Leave unset to keep the bot closed (see the plugin README)."
     required: false
   - name: ACCOMY_DATABASE_URL
-    description: "Optional PostgreSQL connection string of the order store, e.g. postgresql://user:password@host:5432/chatbot?sslmode=verify-full (see the plugin README, Order store)."
+    description: "Optional PostgreSQL connection string of the order store, e.g. postgresql://user:password@host:5432/chatbot?sslmode=verify-full. Enables the order tools (see the plugin README, Order store)."
+    required: false
+  - name: ACCOMY_PAYMENT_LINK_SECRET
+    description: "Optional key that signs the demo payment links orders carry. The payment page (deploy/accomy/payment-demo) holds the same key."
     required: false

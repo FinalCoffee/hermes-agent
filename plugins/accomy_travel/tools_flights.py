@@ -1,4 +1,7 @@
-"""Flight search, airport lookup and live offer pricing on the TMC open platform. Search and pricing only: nothing books.
+"""Flight search, airport lookup and live fare pricing on the TMC open platform, in US dollars.
+
+Nothing here calls an order endpoint. A fare that search returns is remembered as a quote (see quotes.py), which is
+what place_order can book.
 
 Round trips are not offered. TMC's round-trip search (tripType 2) returns one-leg offers, and pairing the legs
 needs a staged journeyId protocol whose final step is not proven on this account. Callers search each direction.
@@ -6,78 +9,30 @@ needs a staged journeyId protocol whose final step is not proven on this account
 
 from __future__ import annotations
 
+import dataclasses
 import re
-import secrets
-import threading
-import time
-from dataclasses import dataclass
-from datetime import date, timedelta
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import _common, tmc_client
+from . import _common, fx, quotes, tmc_client
 from ._common import ApiError, ToolSpec, clean_text
 
 _TMC_ENV = (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV)
 _TYPE_AIRPORT = 2
 _TYPE_CITY = 1
 _IATA_RE = re.compile(r"[A-Za-z]{3}")
-_OFFER_ID_RE = re.compile(r"F[0-9A-F]{8}")
 _DURATION_RE = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?")
-# An offer id is only good for a short while: the supplier re-prices or drops fares after that.
-_OFFER_TTL_SECONDS = 15 * 60.0
-_OFFER_CACHE_MAX = 2000
+_CARRIER_RE = re.compile(r"[A-Z0-9]{2,3}")
+_FLIGHT_NO_RE = re.compile(r"[A-Z0-9]{2,8}")
+_AIRPORT_RE = re.compile(r"[A-Z]{3}")
+_CABIN_MAX = 20
 # Verify answers for a fare the supplier no longer sells at that price.
 _STALE_OFFER_CODES = frozenset({"verify_price_failed", "verify_price_expired"})
 _SORTS = ("price", "duration", "departure")
 _MAX_ADULTS = 9
 _MAX_RULES = 6
 _NOTE = _common.UNTRUSTED_NOTE
-
-
-@dataclass(frozen=True)
-class _Offer:
-    caller: str
-    price_key: str
-    amount: float
-    currency: str | None
-    expires_at: float
-
-
-_offer_lock = threading.Lock()
-_offers: dict[str, _Offer] = {}
-
-
-def _remember(price_key: str, amount: float, currency: str | None) -> str:
-    """A short id for one offer, bound to the caller who searched. The priceKey (about 700 characters) never
-    reaches the model."""
-    now = time.monotonic()
-    with _offer_lock:
-        for offer_id in [
-            key for key, offer in _offers.items() if offer.expires_at <= now
-        ]:
-            del _offers[offer_id]
-        while len(_offers) >= _OFFER_CACHE_MAX:
-            del _offers[next(iter(_offers))]
-        offer_id = "F" + secrets.token_hex(4).upper()
-        while offer_id in _offers:
-            offer_id = "F" + secrets.token_hex(4).upper()
-        _offers[offer_id] = _Offer(
-            _common.caller_id(), price_key, amount, currency, now + _OFFER_TTL_SECONDS
-        )
-    return offer_id
-
-
-def _lookup(offer_id: str) -> _Offer:
-    """The offer for this caller. An id from another caller gets the same answer as an unknown one."""
-    now = time.monotonic()
-    with _offer_lock:
-        offer = _offers.get(offer_id)
-    if offer is None or offer.caller != _common.caller_id() or offer.expires_at <= now:
-        raise ApiError(
-            "offer_expired",
-            "That offer id is unknown or has expired. Search flights again for fresh ids.",
-        )
-    return offer
 
 
 def _iata_arg(args: dict, name: str) -> str:
@@ -107,16 +62,10 @@ def _depart_date(args: dict) -> str:
     return depart.isoformat()
 
 
-def _money(amount: Any, currency: Any) -> dict | None:
-    if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
-        return None  # zero means the supplier holds no price for this fare, not a free flight
-    return {"amount": round(float(amount), 2), "currency": str(currency or "") or None}
-
-
 def _fee(amount: Any, currency: Any) -> dict | None:
     if not isinstance(amount, (int, float)) or isinstance(amount, bool):
         return None
-    return {"amount": round(float(amount), 2), "currency": str(currency or "") or None}
+    return fx.display(amount, str(currency or ""))
 
 
 def _local(day: Any, clock: Any) -> str | None:
@@ -195,11 +144,11 @@ def _segment(segments: dict, segment_id: str) -> dict:
 
 def _offer_row(flight: dict, offer: dict, segments: dict) -> dict:
     journey = _as_list(flight.get("journeys"))[0]
-    price = _money(offer.get("totalSalePrice"), offer.get("currency"))
+    price = fx.display(_common.supplier_amount(offer.get("totalSalePrice")), offer.get("currency") or "")
     return _common.compact(
         {
             "price": price,
-            "cabin": (offer.get("cabinClass") or [None])[0],
+            "cabin": _cabin(offer),
             "airline": offer.get("ticketingAirline"),
             "depart": {
                 "airport": journey.get("origin"),
@@ -223,8 +172,50 @@ def _offer_row(flight: dict, offer: dict, segments: dict) -> dict:
     )
 
 
+def _cabin(offer: dict) -> str | None:
+    value = (offer.get("cabinClass") or [None])[0]
+    return str(value)[:_CABIN_MAX] if value else None
+
+
+def _leg(seg: Any, cabin: str | None) -> quotes.FlightLeg | None:
+    """One flight as an order needs it, or None when the supplier's record is too incomplete to book."""
+    if not isinstance(seg, dict):
+        return None
+    carrier = str(seg.get("airlineCode") or "")
+    flight_no = str(seg.get("flightNumber") or "")
+    origin = str(seg.get("departureAirport") or "")
+    destination = str(seg.get("arrivalAirport") or "")
+    if not (_CARRIER_RE.fullmatch(carrier) and _FLIGHT_NO_RE.fullmatch(flight_no)
+            and _AIRPORT_RE.fullmatch(origin) and _AIRPORT_RE.fullmatch(destination) and origin != destination):
+        return None
+    try:
+        depart = datetime.fromisoformat(f"{seg['departureDate']} {seg['departureTime']}")
+        arrive = datetime.fromisoformat(f"{seg['arrivalDate']} {seg['arrivalTime']}")
+    except (KeyError, TypeError, ValueError):
+        return None
+    return quotes.FlightLeg(carrier, flight_no, origin, destination, depart, arrive, cabin)
+
+
+def _fare(flight: dict, offer: dict, segments: dict, adults: int, price_key: str) -> quotes.FlightFare | None:
+    """The fare as an order needs it (its legs, party and USD total), or None when it cannot be ordered: an
+    incomplete leg, or a currency without a rate."""
+    journey = _as_list(flight.get("journeys"))[0]
+    cabin = _cabin(offer)
+    legs = []
+    for sid in journey.get("airSegmentList") or []:
+        leg = _leg(segments.get(sid) if isinstance(sid, str) else None, cabin)
+        if leg is None:
+            return None
+        legs.append(leg)
+    total = fx.to_usd(
+        _common.supplier_amount(offer.get("totalSalePrice")), offer.get("currency") or "")
+    if total is None or not legs:
+        return None
+    return quotes.FlightFare(legs=tuple(legs), adults=adults, total=total, price_key=price_key)
+
+
 _SORT_KEYS = {
-    "price": lambda row: row["price"]["amount"],
+    "price": lambda row: fx.usd_value(row["price"]),
     "duration": lambda row: _minutes(row.get("duration", "")),
     "departure": lambda row: row["depart"].get("local") or "",
 }
@@ -264,11 +255,11 @@ def _search_schema() -> dict:
     return {
         "name": "search_flights",
         "description": (
-            "Search one-way economy flights between two airports or cities on one date, with prices. Returns up to "
-            "max_results offers sorted by price (default), duration or departure, each with an offer_id, price, "
-            "airline, local times, stops, segments and baggage. Pass an offer_id to get_flight_offer for the live "
-            "price and refund and change rules. Round trips are not supported: search each direction separately. "
-            "Read-only: nothing is booked."
+            "Search one-way economy flights between two airports or cities on one date, with prices in US dollars; "
+            "converted prices are approximate. Returns up to max_results offers sorted by price (default), duration "
+            "or departure, each with a quote_id, price, airline, local times, stops, segments and baggage. Only an "
+            "offer with a quote_id can be booked with place_order. Pass a quote_id to get_flight_offer for the live "
+            "price and refund and change rules. Round trips are not supported: search each direction separately."
         ),
         "parameters": {
             "type": "object",
@@ -324,27 +315,26 @@ def search_flights(args: dict) -> str:
     body = _search_body(origin, destination, depart, adults, direct_only)
     data = tmc_client.flight_search(body)
     segments = data.get("segments") if isinstance(data.get("segments"), dict) else {}
-    offers = []
+    priced = []
     for flight in _as_list(data.get("flight")):
         if flight.get("policyBlocked") or not _as_list(flight.get("journeys")):
             continue
         for offer in _as_list(flight.get("offerPriceList")):
-            if not _money(
-                offer.get("totalSalePrice"), offer.get("currency")
-            ) or not offer.get("priceKey"):
+            if _common.supplier_amount(offer.get("totalSalePrice")) is None or not offer.get("priceKey"):
                 continue
             if (offer.get("salesLimit") or {}).get("ageLimit"):
                 continue  # an age-restricted fare cannot be sold to any traveller the model can name
-            offers.append((_offer_row(flight, offer, segments), offer["priceKey"]))
-    offers.sort(key=lambda pair: _SORT_KEYS[sort](pair[0]))
+            fare = _fare(flight, offer, segments, adults, offer["priceKey"])
+            priced.append((_offer_row(flight, offer, segments), fare))
+    priced.sort(key=lambda pair: _SORT_KEYS[sort](pair[0]))
     shown = []
-    for row, price_key in offers[:max_results]:
-        row["offer_id"] = _remember(
-            price_key, row["price"]["amount"], row["price"]["currency"]
-        )
+    for row, fare in priced[:max_results]:
+        if fare is not None:
+            row["quote_id"] = quotes.remember(quotes.FLIGHT, fare)
         shown.append(row)
     hint = (
-        "Pass an offer_id to get_flight_offer before quoting a fare. Offer ids expire after about 15 minutes."
+        "Only offers with a quote_id can be booked. Pass one to get_flight_offer for the live price and rules "
+        "before quoting a fare. Quote ids expire after 30 minutes."
         if shown
         else "No flights are on sale for this route and date. Try nearby dates or nearby airports."
     )
@@ -352,7 +342,7 @@ def search_flights(args: dict) -> str:
         note=_NOTE,
         route=f"{origin}-{destination}",
         depart_date=depart,
-        total_offers=len(offers),
+        total_offers=len(priced),
         flights=shown,
         hint=hint,
     )
@@ -464,55 +454,52 @@ def _offer_schema() -> dict:
     return {
         "name": "get_flight_offer",
         "description": (
-            "Re-price one offer_id from search_flights and return the live total, baggage allowance, refund and "
-            "change rules. Call it before quoting a fare to the user: prices can change, and offers expire after "
-            "about 15 minutes. Read-only: nothing is booked."
+            "Re-price one quote_id from search_flights and return the current USD total, baggage allowance, refund and "
+            "change rules. Call it before quoting a fare to the user: prices can change, and quote ids expire after "
+            "30 minutes. Converted prices are approximate."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "offer_id": {
+                "quote_id": {
                     "type": "string",
-                    "description": "offer_id from search_flights, e.g. F1A2B3C4.",
+                    "description": "quote_id from search_flights, e.g. Q1A2B3C4D.",
                 }
             },
-            "required": ["offer_id"],
+            "required": ["quote_id"],
         },
     }
 
 
 @_common.tool_handler
 def get_flight_offer(args: dict) -> str:
-    offer_id = str(args.get("offer_id") or "").strip().upper()
-    if not _OFFER_ID_RE.fullmatch(offer_id):
-        raise ValueError(
-            "offer_id is the id shown in search_flights results, such as F1A2B3C4."
-        )
-    searched = _lookup(offer_id)
+    quote_id = quotes.parse_id(args.get("quote_id"))
+    fare = quotes.lookup(quote_id, quotes.FLIGHT).facts
     try:
-        data = tmc_client.flight_verify(searched.price_key)
+        data = tmc_client.flight_verify(fare.price_key)
     except ApiError as exc:
         if exc.code in _STALE_OFFER_CODES:
             raise ApiError(
-                "offer_expired",
+                "quote_unknown",
                 "That fare is no longer sold at that price. Search flights again.",
             ) from exc
         raise
     offer = data.get("offerData") if isinstance(data.get("offerData"), dict) else {}
-    price = _money(offer.get("totalSalePrice"), offer.get("currency"))
-    if price is None:
-        raise ApiError(
-            "offer_expired", "That fare has no price now. Search flights again."
-        )
-    currency = price["currency"]
-    changed = price["amount"] != round(searched.amount, 2)
+    currency = str(offer.get("currency") or "")
+    source = _common.supplier_amount(offer.get("totalSalePrice"))
+    if source is None:
+        raise ApiError("quote_unknown", "That fare has no price now. Search flights again.")
+    price = fx.display(source, currency)
+    verified = fx.to_usd(source, currency)
+    changed = verified is None or verified.amount != fare.total.amount
+    if changed:
+        # An order pays the price the user was last shown; a price with no rate cannot be ordered at all.
+        quotes.reprice(quote_id, None if verified is None else dataclasses.replace(fare, total=verified))
     result = _common.compact(
         {
-            "offer_id": offer_id,
+            "quote_id": quote_id,
             "price": price,
-            "searched_price": _money(searched.amount, searched.currency)
-            if changed
-            else None,
+            "searched_price": fare.total.as_money() if changed else None,
             "journeys": _verify_journeys(data.get("journeys")),
             "baggage": _baggage(offer.get("baggageRules")),
             "refund_rules": _rule_lines(offer.get("refundRules"), currency),
@@ -524,9 +511,9 @@ def get_flight_offer(args: dict) -> str:
         note=_NOTE,
         **result,
         hint=(
-            "The price changed since search: quote the current price."
+            "The price changed since search: quote the current price, which is what an order now costs."
             if changed
-            else "Prices and rules are live from the supplier. Nothing is booked by this tool."
+            else "Prices and rules are live from the supplier. Converted prices are approximate."
         ),
     )
 

@@ -1,7 +1,8 @@
 """Seat Unique Trade API reads: events, listings and the category catalog.
 
 Read-only by construction: no reservation or payment endpoint is wired here, so nothing reachable
-from the travel tools can create, pay for or cancel an order. Sandbox only, because live access is
+from the travel tools can create, pay for or cancel a supplier order. Demonstration orders are kept in the
+order database only (see orderstore). Sandbox only, because live access is
 owner-gated.
 """
 

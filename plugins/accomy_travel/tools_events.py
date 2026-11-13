@@ -1,7 +1,7 @@
-"""Seat Unique event search and ticket availability for the travel assistant.
+"""Seat Unique event search and ticket availability for the travel assistant, priced in US dollars.
 
-Availability and pricing only: nothing here reserves, pays or cancels. The supplier's reservation
-endpoints are deliberately not wired (see seatunique_client).
+Nothing here calls the supplier's reservation endpoints, which are not wired (see seatunique_client). A listing
+that is shown with a quote_id is what place_order can book.
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from . import _common, seatunique_client
+from . import _common, fx, quotes, seatunique_client
 from ._common import ToolSpec, clean_text, compact
 
-NOTICE = "Search and pricing only. Purchasing is not available through this assistant."
+NOTICE = "Prices are in US dollars; converted prices are approximate. Orders here are demonstration orders."
 DEFAULT_RESULTS = 8
 MAX_RESULTS = 20
 MAX_LISTINGS = 8
@@ -31,14 +31,14 @@ _LISTING_KIND = {"package": "hospitality_package", "ticket": "ticket"}
 _SEARCH_DESCRIPTION = (
     "Search Seat Unique event and hospitality ticket listings (mostly UK sport and music). Returns upcoming "
     "events sorted by date, with event_id, local date and time, venue, city and performer. Call "
-    "get_event_tickets with an event_id for prices and availability. Read-only: purchasing is not available "
-    "through this assistant. City and country match the English catalog names, filtered after a bounded "
+    "get_event_tickets with an event_id for prices and availability in US dollars; converted prices are "
+    "approximate. City and country match the English catalog names, filtered after a bounded "
     "scan; if truncated is true, narrow with query, city, date_to or subcategory.")
 _TICKETS_DESCRIPTION = (
-    "Get one event's ticket and hospitality listings sorted by price: price, currency, stock, the quantities "
-    "each listing allows, inclusions and one image. With quantity, says per listing whether that count is "
-    "purchasable and its total. Availability and pricing only; purchasing is not available through this "
-    "assistant, so never promise a booking. Use an event_id from search_events.")
+    "Get one event's ticket and hospitality listings sorted by price in US dollars (converted prices are "
+    "approximate): price, stock, the quantities each listing allows, inclusions and one image. With quantity, "
+    "says per listing whether that count is purchasable and its total. Each listing with a quote_id can be booked "
+    "with place_order for the quantities it allows. Use an event_id from search_events.")
 
 _SEARCH_SCHEMA = {
     "name": "search_events",
@@ -186,9 +186,13 @@ def _exponent(currency: str) -> int:
     return 3 if currency in _THREE_DECIMAL else 2
 
 
-def _money(minor: int, currency: str) -> dict:
-    exponent = _exponent(currency)
-    return {"amount": f"{Decimal(minor).scaleb(-exponent):.{exponent}f}", "currency": currency}
+def _source_amount(minor: int, currency: str) -> Decimal:
+    """The supplier's amount in its own currency, exact: minor units scaled by the currency's exponent."""
+    return Decimal(minor).scaleb(-_exponent(currency))
+
+
+def _usd_key(listing: dict) -> Decimal:
+    return fx.usd_value(fx.display(_source_amount(listing["price"], listing["currency"]), listing["currency"]))
 
 
 def _multiple_problem(option: dict, quantity: int, available: int) -> str | None:
@@ -282,17 +286,43 @@ def _quantity_view(listing: dict, quantity: int) -> dict:
     problem = _problem(listing, quantity)
     if problem is not None:
         return {"quantity": quantity, "purchasable": False, "reason": problem}
-    minor = listing["price"] * quantity
-    return {"quantity": quantity, "purchasable": True, "total": _money(minor, listing["currency"])}
+    total = _source_amount(listing["price"] * quantity, listing["currency"])
+    shown = fx.display(total, listing["currency"])
+    return {"quantity": quantity, "purchasable": "unconverted" not in shown, "total": shown}
 
 
-def _listing_view(listing: dict, quantity: int | None) -> dict:
+def _offset_text(moment: dt.datetime) -> str:
+    minutes = int(moment.utcoffset().total_seconds()) // 60
+    return f"UTC{'+' if minutes >= 0 else '-'}{abs(minutes) // 60:02d}:{abs(minutes) % 60:02d}"
+
+
+def _listing_facts(event: dict, listing: dict, allowed: list[int]) -> quotes.EventListing:
+    starts = _starts(event)
+    location = event.get("location") or {}
+    performer = event.get("performer") or {}
+    return quotes.EventListing(
+        event_id=event["id"],
+        event_name=clean_text(event.get("name"), 200),
+        venue=clean_text(location.get("name"), 120) or None,
+        category=performer.get("category") or None,
+        starts_local=starts.replace(tzinfo=None),
+        tz_name=_offset_text(starts),
+        listing_id=listing["id"],
+        listing_name=clean_text(listing.get("name"), 160),
+        unit_amount=_source_amount(listing["price"], listing["currency"]),
+        currency=listing["currency"],
+        allowed=tuple(allowed),
+    )
+
+
+def _listing_view(listing: dict, quantity: int | None, event: dict) -> dict:
+    unit = _source_amount(listing["price"], listing["currency"])
     view = compact({
         "listing_id": listing["id"],
         "name": clean_text(listing.get("name"), 160),
         "type": _LISTING_KIND.get(listing["listing_type"], listing["listing_type"]),
         "delivery": _DELIVERY.get(listing["ticket_type"], listing["ticket_type"]),
-        "price": _money(listing["price"], listing["currency"]),
+        "price": fx.display(unit, listing["currency"]),
         "available_qty": listing["available_qty"],
         "quantities": _describe_quantities(listing),
         "inclusions": [clean_text(item.get("name"), 120) for item in sorted(
@@ -301,6 +331,9 @@ def _listing_view(listing: dict, quantity: int | None) -> dict:
         "image_url": next((image["url"] for image in listing.get("images") or []
                            if image.get("url", "").startswith("https://")), None),
     })
+    allowed = _allowed(listing)
+    if allowed and fx.to_usd(unit, listing["currency"]) is not None:
+        view["quote_id"] = quotes.remember(quotes.EVENT_TICKET, _listing_facts(event, listing, allowed))
     if quantity is not None:
         view["for_quantity"] = _quantity_view(listing, quantity)
     return view
@@ -365,11 +398,11 @@ def get_event_tickets(args: dict) -> str:
     quantity = _optional_int(args, "quantity", None, 1)
     event = seatunique_client.get_event(event_id)
     listings = seatunique_client.list_listings(event_id)
-    sellable = sorted((listing for listing in listings if listing["available_qty"] >= 1),
-                      key=lambda listing: listing["price"])
+    sellable = sorted((listing for listing in listings if listing["available_qty"] >= 1), key=_usd_key)
     shown = sellable[:MAX_LISTINGS]
 
-    hints = ["Prices are availability at this moment and can change; quote them as indicative."]
+    hints = ["Prices are availability at this moment, in US dollars, and can change; converted prices are "
+             "approximate. Only listings with a quote_id can be booked with place_order."]
     if quantity is not None:
         hints.append("Listings with purchasable false cannot take this quantity; offer another quantity or listing.")
     if len(sellable) > len(shown):
@@ -379,7 +412,7 @@ def get_event_tickets(args: dict) -> str:
         event=_event_view(event),
         listings_total=len(listings),
         sold_out_listings=len(listings) - len(sellable),
-        listings=[_listing_view(listing, quantity) for listing in shown],
+        listings=[_listing_view(listing, quantity, event) for listing in shown],
         quantity=quantity,
         hints=hints,
         note=_common.UNTRUSTED_NOTE,

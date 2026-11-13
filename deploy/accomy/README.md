@@ -9,8 +9,8 @@ message the bot: the operating system, not the agent, is the boundary.
 | | Allowed | Blocked |
 |---|---|---|
 | Files | Its image (read-only), the `data` volume, and in-memory scratch space | Every host file except the read-only profile mounts below. No host directory and no Docker socket are mounted |
-| Profile | Reads `config.yaml` and `SOUL.md` | Cannot change them: both are read-only mounts. The plugin and hook directories of the volume are empty and read-only, so only the image's code is loaded |
-| Network | HTTPS to the eight hosts in `squid.conf`, through the `egress` proxy. With the `db` profile, one PostgreSQL server through the `db` relay | Any other host, bare IP addresses, plain HTTP, the host machine, the LAN, the cloud metadata service |
+| Profile | Reads `config.yaml`, `SOUL.md` and the `locales/` wording | Cannot change them: all three are read-only mounts. The plugin and hook directories of the volume are empty and read-only, so only the image's code is loaded |
+| Network | HTTPS to the hosts listed in `squid.conf`, through the `egress` proxy. With the `db` profile, one PostgreSQL server through the `db` relay | Any other host, bare IP addresses, plain HTTP, the host machine, the LAN, the cloud metadata service |
 | Inbound | Nothing. Telegram is long-polled outbound | No port is published |
 | Privilege | The gateway runs as uid 10000 with no capabilities and cannot gain any (`no-new-privileges`). The supervisor above it stays root with six capabilities | Memory, CPU and process limits |
 
@@ -36,7 +36,8 @@ into the data volume. `--open` lets every Telegram account talk to the bot; with
 before using `--open`.
 
 The container runs `distributions/accomy/config.yaml` as it is in this checkout. To run another profile file,
-set `ACCOMY_CONFIG` and `ACCOMY_SOUL` to host paths.
+set `ACCOMY_CONFIG`, `ACCOMY_SOUL` and `ACCOMY_LOCALES` to host paths. `locales/` holds the end-user
+wording (`en.yaml`): the bot reads it from `/opt/data/locales`, and the bootstrap copies it out of the image next to `config.yaml`.
 
 | Task | Command (add `-f deploy/accomy/docker-compose.yml`, or run from this directory) |
 |---|---|
@@ -88,6 +89,38 @@ docker compose exec -u hermes bot hermes accomy-orders migrate --commit   # appl
 
 `rds-ca-ap-southeast-1.crt` is Amazon's public certificate bundle for RDS in Singapore, the trust anchor for
 that connection. For a database elsewhere, set `ACCOMY_DB_CA` to its CA file.
+
+## The demo payment page
+
+`payment-demo/` is a separate, tiny deployment: one AWS Lambda behind an HTTP API, and one DynamoDB table. A
+confirmed order carries a signed link to it, valid for 24 hours from the moment the order was placed.
+
+- **What the visitor sees.** The order item by item (each line opens to show its dates, flights, room or tickets,
+  and the supplier's own price when the amount was converted), the total in US dollars, and a banner saying this is
+  a demonstration that charges nothing. The language follows the visitor's browser (Traditional and Simplified
+  Chinese, English, Japanese, Korean; English for any other) and a selector on the page changes it.
+- **Paying.** The page accepts only Airwallex's public test card `4012 0003 0000 0062`, checks it in the browser and
+  never receives a card number. Pressing Pay makes the Lambda send the user a real Telegram message, as the bot, in
+  the page's language. An order is paid once: the table remembers it, and a second press sends nothing.
+- **Cancelling.** When the bot cancels an order it tells the page, and the link then says the order was cancelled
+  and takes no payment. `get_order` asks the page whether an order was paid.
+- **What the link holds.** The order code, the trip name, the items and amounts, and the chat to notify. It is
+  signed, not encrypted, and names no traveller. Anyone who is given the link can see that order and pay it.
+
+```sh
+AWS_PROFILE=<profile> AWS_REGION=ap-southeast-1 deploy/accomy/payment-demo/deploy.sh ~/path/to/profile/.env
+```
+
+The script puts the bot token and a link-signing key in Parameter Store, creates the stack `accomy-payment-demo`,
+and prints how to add the key to the bot's `.env` as `ACCOMY_PAYMENT_LINK_SECRET`. Put the page's address in the
+profile as `plugins.entries.accomy_travel.settings.payment_url`, add its host to `squid.conf` (the bot calls the page
+to void and to ask), reseed the secrets and restart the bot.
+
+By default the page gets its own name, `dev-chatbot-payment.accomy-tech.com` (`ACCOMY_PAYMENT_DOMAIN`), which needs
+a free record in the hosted zone and an issued certificate for it. With `ACCOMY_PAYMENT_DOMAIN=` (empty) the page is
+served on the API's own `execute-api` address instead. Remove everything with
+`aws cloudformation delete-stack --stack-name accomy-payment-demo` and by deleting the two parameters under
+`/accomy/payment-demo/`.
 
 ## Deploying to AWS EC2
 

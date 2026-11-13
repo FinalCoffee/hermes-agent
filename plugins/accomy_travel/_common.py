@@ -12,6 +12,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -184,6 +185,14 @@ def clean_text(value: Any, limit: int = 500) -> str:
         return ""
     text = _SPACE_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", value))).strip()
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def supplier_amount(value: Any) -> Decimal | None:
+    """A supplier price as an exact decimal. Zero or missing means the supplier holds no price, not a free item."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    amount = Decimal(str(value))
+    return amount if amount.is_finite() and amount > 0 else None
 
 
 def compact(mapping: dict[str, Any]) -> dict[str, Any]:

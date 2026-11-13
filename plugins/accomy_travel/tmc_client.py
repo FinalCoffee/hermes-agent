@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import threading
 import time
 import uuid
@@ -31,6 +32,20 @@ API_PREFIX = "/openapi/v1/tmc"
 APP_KEY_ENV = "TMC_APP_KEY"
 APP_SECRET_ENV = "TMC_APP_SECRET"
 LANGUAGE = "en-US"
+
+# Every TMC endpoint this bot may reach: the session, lookups, searches and the price check. Orders are
+# recorded in the bot's own database (tools_orders.py). No create-order, pay, cancel, change or refund
+# endpoint is listed, so a request for one is refused in _send, whatever key is configured and whoever asks.
+_READ_ENDPOINTS = frozenset({
+    ("POST", "/auth/token"),
+    ("GET", "/hotel/locations"),
+    ("POST", "/hotel/search"),
+    ("POST", "/hotel/products/search"),
+    ("GET", "/dict/airports"),
+    ("POST", "/flight/search"),
+    ("POST", "/flight/verify"),
+})
+_HOTEL_DETAIL_PATH = re.compile(r"/hotel/[0-9]+")  # digits only: /hotel/order is the create-order endpoint
 
 _SUCCESS_CODES = frozenset({"0", "SUCCESS"})
 _TOKEN_EXPIRED = "401"
@@ -119,6 +134,8 @@ def _send(
     secret: str,
     token: str | None,
 ) -> tuple[int, Any]:
+    if (method, path) not in _READ_ENDPOINTS and not (method == "GET" and _HOTEL_DETAIL_PATH.fullmatch(path)):
+        raise _common.ApiError("not_allowed", "This assistant does not send that request to the travel data service.")
     full_path = f"{API_PREFIX}{path}"
     timestamp, nonce = str(int(time.time())), uuid.uuid4().hex
     headers = {

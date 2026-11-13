@@ -47,8 +47,15 @@ agent:
 plugins:
   enabled:
     - accomy_travel
+  entries:
+    accomy_travel:
+      settings:
+        # Where the demo payment page is served (deploy/accomy/payment-demo). A confirmed order carries a link
+        # to it when ACCOMY_PAYMENT_LINK_SECRET is set as well. Empty: orders carry no payment link.
+        payment_url: "https://5c8l8j74j4.execute-api.ap-southeast-1.amazonaws.com"
 
-# Exactly the plugin's 12 tools. no_mcp stops globally enabled mcp_servers from joining (tools_config.py:747).
+# The plugin's 12 search tools, plus the four order tools when ACCOMY_DATABASE_URL is set. no_mcp stops globally
+# enabled mcp_servers from joining (tools_config.py:747).
 platform_toolsets:
   telegram:
     - accomy_travel
@@ -127,13 +134,16 @@ gateway:
   # Closed by default: strangers get one polite refusal, not a pairing code. Open the bot with
   # gateway.allow_all_users or TELEGRAM_ALLOWED_USERS (see the plugin README).
   unauthorized_dm_behavior: decline
-  unauthorized_dm_decline_message: "您好，Accomy 目前只開放給受邀的使用者。"
+  unauthorized_dm_decline_message: "您好，Accomy 目前只開放給受邀的使用者。\nHello. Accomy is open to invited users only for now."
   # A reply may attach only files from the gateway's own cache: without these, a model talked into writing
   # MEDIA:/some/path uploads that host file to the chat (gateway/media_policy.py).
   strict: true
   trust_recent_files: false
   # Forum topics: one session per member, so members cannot interrupt or reset one another.
   thread_sessions_per_user: true
+  # End users are not the operator: replies and the prompt leave out host paths, the install name and
+  # model/provider details, and the locale overlay in locales/ supplies the wording.
+  hide_operator_details: true
   max_concurrent_sessions: 8
   platforms:
     telegram:
@@ -159,3 +169,12 @@ telegram:
   group_allow_admin_from: ["0"]
   # No new/stop in groups: there they also act on other members' conversations.
   group_user_allowed_commands: [start]
+
+platforms:
+  telegram:
+    extra:
+      # The Telegram command menu lists only what an end user can run: exactly these four, in this order.
+      command_menu:
+        max_commands: 4
+        priority_mode: replace
+        priority: [start, new, stop, help]

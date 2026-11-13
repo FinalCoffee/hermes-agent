@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Accomy bot demo payment page: one Lambda behind an HTTP API, and a table that remembers per order
+  whether it was paid or cancelled. It charges nothing; pressing Pay sends the traveller a Telegram
+  message, once. deploy.sh uploads the real code.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: ""
+    Description: The page's own host name. Empty serves it on the API's execute-api address instead.
+  HostedZoneId:
+    Type: String
+    Default: ""
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate in this region that covers DomainName.
+  LinkSecretParam:
+    Type: String
+    Default: /accomy/payment-demo/link-secret
+  BotTokenParam:
+    Type: String
+    Default: /accomy/payment-demo/telegram-bot-token
+
+Conditions:
+  OwnDomain: !Not [!Equals [!Ref DomainName, ""]]
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-its-two-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LinkSecretParam}
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BotTokenParam}
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem]
+                Resource: !GetAtt State.Arn
+
+  State:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: code, AttributeType: S}
+      KeySchema:
+        - {AttributeName: code, KeyType: HASH}
+      TimeToLiveSpecification: {AttributeName: ttl, Enabled: true}
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt Role.Arn
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          LINK_SECRET_PARAM: !Ref LinkSecretParam
+          BOT_TOKEN_PARAM: !Ref BotTokenParam
+          STATE_TABLE: !Ref State
+      Code:
+        # A placeholder: deploy.sh replaces it with handler.py right after the stack is up.
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 503, "body": "deploying"}
+
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Function}
+      RetentionInDays: 14
+
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: !If [OwnDomain, true, false]
+
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: "2.0"
+
+  ShowPage:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /p/{token}
+      Target: !Sub integrations/${Integration}
+
+  Pay:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /p/{token}
+      Target: !Sub integrations/${Integration}
+
+  Void:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /v/{token}
+      Target: !Sub integrations/${Integration}
+
+  Status:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /s/{token}
+      Target: !Sub integrations/${Integration}
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: $default
+      AutoDeploy: true
+      # A public page that makes a bot send messages: keep it slow.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+
+  Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*
+
+  Domain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: OwnDomain
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  Mapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: OwnDomain
+    DependsOn: Stage
+    Properties:
+      ApiId: !Ref Api
+      DomainName: !Ref Domain
+      Stage: $default
+
+  Dns:
+    Type: AWS::Route53::RecordSet
+    Condition: OwnDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt Domain.RegionalDomainName
+        HostedZoneId: !GetAtt Domain.RegionalHostedZoneId
+
+Outputs:
+  Url:
+    Value: !If [OwnDomain, !Sub "https://${DomainName}", !GetAtt Api.ApiEndpoint]

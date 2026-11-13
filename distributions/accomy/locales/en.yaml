@@ -1,0 +1,114 @@
+# English wording for the Accomy travel bot's end users. The gateway reads this file from the profile home
+# (locales/en.yaml) before its own pack, so every key here replaces the operator-facing text in that pack.
+# An empty string sends nothing: that is how an operator-only notice is removed on Telegram.
+# tests/plugins/accomy_travel/test_enduser_surface.py checks every key here against the forbidden terms.
+
+slash:
+  start:
+    description: "Start talking to the travel assistant"
+  new:
+    description: "Start a new conversation"
+  stop:
+    description: "Stop the current answer"
+  help:
+    description: "See what I can help you with"
+
+gateway:
+  notify:
+    # Operator-only: it asks the operator to set a home channel for cron results. Users never see it.
+    no_home_channel: ""
+    turn_error: "Sorry, something went wrong. Please send your message again."
+    turn_error_generic: "Sorry, something went wrong. Please send your message again."
+    turn_error_detailed: "Sorry, something went wrong. Please send your message again."
+
+  reset:
+    header_default: "✨ Starting a fresh conversation."
+    header_new: "✨ New conversation started!"
+    header_titled: "✨ New conversation: {title}"
+    # The rotating tips name operator commands and the command line, so this profile shows none.
+    tip: ""
+    paused_left: ""
+
+  unauthorized:
+    admin_only: "⛔ That command isn't available here. Send /help to see what I can do."
+    admin_only_can_run: ""
+    admin_only_whoami_hint: ""
+    admin_only_none: "⛔ That command isn't available here. Send /help to see what I can do."
+    action_notice: "This assistant is available to invited guests only."
+
+  unknown_command: "I don't know the command `/{command}`. Send /help to see what I can do, or just tell me what you need in your own words."
+
+  busy:
+    queued_head: "⏳ Got it"
+    queued_tail: ". I'll answer as soon as I finish the current reply."
+    demoted_tail: " — I'll get to it when this finishes (send /stop to cancel everything)."
+    drain_queued: "⏳ I'm {action} for a moment. Your message is queued and I'll answer once I'm back."
+    drain_rejected: "⏳ I'm {action} and can't take another message right now. Please try again shortly."
+    drain_rejected_new_work: "⏳ I'm {action} and can't take new requests right now. Please try again shortly."
+
+  progress:
+    # No {detail}: it carries the turn counter and the name of the tool or model call in progress.
+    working_heartbeat: "⏳ 還在處理中，請稍候… / Still working on it…"
+    stuck_warning: "⚠️ This is taking longer than expected (no activity for {minutes} min). If nothing happens in the next {remaining} min I'll stop this task. You can keep waiting, send /stop to cancel it, or send /new to start a fresh conversation."
+    timeout_hint: "Please try again, or send /new to start fresh."
+    task_card_title: "Working on it"
+
+  help:
+    header: "📖 What I can do\n"
+    more_use_commands: ""
+
+  shared:
+    history_unreadable: "⚠️ I can't open this conversation right now. Please send /new to start fresh."
+
+  errors:
+    generic_failed: "⚠️ Something went wrong and I couldn't finish this reply. Please try again, or send /new to start a fresh conversation."
+    generic_failed_with_hint: "⚠️ Something went wrong and I couldn't finish this reply.{hint}\nPlease try again, or send /new to start a fresh conversation."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
+    empty_reply_generic: "I couldn't come up with a reply to that. Please send your message again."
+    hint_auth: " The service sign-in has expired. Please let the operator of this assistant know."
+    hint_quota: " The service's usage balance has run out. Please try again later."
+    hint_overloaded: " The service is busy right now. Wait a moment, then send your message again."
+    hint_rate_limited: " The service is busy with too many requests. Wait a moment, then send your message again."
+    hint_usage_limit: " The service's usage limit has been reached. Please try again later."
+    hint_usage_limit_resets: " The service's usage limit has been reached and resets in {window}."
+    hint_rejected: " The service couldn't process this request."
+    rate_limited: "⏱️ The service is busy with too many requests right now. Please wait a moment, then send your message again."
+    auth_failed: "⚠️ I couldn't reach the service right now. Please try again later, or let the operator of this assistant know."
+    bad_request: "⚠️ The service couldn't process this request. Try rephrasing your message."
+    connection_interrupted: "⚠️ The connection was interrupted mid-request. Please send your message again."
+    unreachable: "⚠️ The service isn't reachable right now. Please wait a moment and send your message again."
+    connection_unknown: "⚠️ I couldn't reach the service right now. Please send your message again in a moment."
+    provider_kept_failing: "⚠️ The service kept failing. Please try again later."
+    usage_limit_resets: "⏱️ The service's usage limit has been reached; it resets in {window}. Please try again after that."
+    context_overflow: "⚠️ This conversation has grown too long for me to read all at once. Please send /new to start a fresh conversation."
+    stopped_before_finishing: "⚠️ I had to stop before finishing{reason}. Please send your message again, or send /new to start over."
+    unexpected_silence: "⚠️ I couldn't come up with a reply to that. Please try again or rephrase."
+    no_response: "⚠️ I couldn't produce a reply this time. Please send your message again."
+    history_unavailable: "⚠️ I can't open this conversation right now, so this message was not processed. Please try again later, or send /new to start fresh."
+    no_credentials: "⚠️ I couldn't reach the service, so this message wasn't processed. Please try again later."
+    launch_credentials_unavailable: "⚠️ This chat can't be used any more, so nothing can run in it. Please send /new to start a fresh conversation."
+
+  skills:
+    disabled: "The {name} feature isn't available here. Send /help to see what I can do."
+    not_installed: "The {name} feature isn't available here. Send /help to see what I can do."
+    disabled_for_platform: "The {name} feature isn't available here. Send /help to see what I can do."
+
+  shutdown:
+    notice_shutdown: "⚠️ I'm shutting down for maintenance, so your current task will be interrupted. Send any message once I'm back and I'll try to pick up where we left off."
+    notice_restart: "⚠️ I'm restarting, so your current task will be interrupted. Send any message after the restart and I'll try to resume where you left off."
+    cron_interrupted: "⚠️ A scheduled task was cut short. It will run again on schedule."
+
+  startup:
+    online: ""
+    restarted: "♻ Back online. Your conversation continues."
+
+  session:
+    auto_reset_notice: "◐ This conversation was reset after being stopped. Conversation history cleared.\n"
+
+  compress:
+    summary_failed: "⚠️ I couldn't summarize the earlier part of this conversation. {count} earlier message(s) were removed, and that context can't be recovered."
+    aborted: "⚠️ Shortening this conversation was interrupted and nothing was dropped. Please send your message again, or send /new to start fresh."
+    aux_failed: "ℹ️ Shortening this conversation hit a problem, but I continued with the full history."
+    hygiene_timeout: "⚠️ Shortening the conversation history took too long, so I kept everything as it is. Send /new to start fresh."
+    hygiene_timeout_doctor_hint: ""
+    hygiene_failed: "⚠️ Shortening the conversation history failed, so I kept everything as it is. Send /new to start fresh."

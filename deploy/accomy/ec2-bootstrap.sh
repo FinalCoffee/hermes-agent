@@ -51,6 +51,8 @@ cid="$(docker create "$ACCOMY_IMAGE")"
 docker cp "$cid:/opt/hermes/deploy/accomy/." "$home/"
 docker cp "$cid:/opt/hermes/distributions/accomy/config.yaml" "$home/config.yaml"
 docker cp "$cid:/opt/hermes/distributions/accomy/SOUL.md" "$home/SOUL.md"
+mkdir -p "$home/locales"
+docker cp "$cid:/opt/hermes/distributions/accomy/locales/." "$home/locales/"
 docker rm "$cid" > /dev/null
 chown -R root:root "$home"
 chmod -R go-w "$home"
@@ -60,6 +62,7 @@ cat > "$home/.env" <<VARS
 ACCOMY_IMAGE=$ACCOMY_IMAGE
 ACCOMY_CONFIG=$home/config.yaml
 ACCOMY_SOUL=$home/SOUL.md
+ACCOMY_LOCALES=$home/locales
 VARS
 if [ -n "${ACCOMY_DB_HOST:-}" ]; then
     printf 'COMPOSE_PROFILES=db\nACCOMY_DB_HOST=%s\n' "$ACCOMY_DB_HOST" >> "$home/.env"

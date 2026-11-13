@@ -15,7 +15,9 @@ from urllib.parse import unquote
 
 import pytest
 
-from plugins.accomy_travel import _common, tmc_client, tools_flights
+from decimal import Decimal
+
+from plugins.accomy_travel import _common, quotes, tmc_client, tools_flights
 
 FIXTURES = Path(__file__).parent / "fixtures"
 APP_KEY = "app-key-for-tests"
@@ -24,7 +26,7 @@ TOKEN_PATH = "/openapi/v1/tmc/auth/token"
 AIRPORTS_PATH = "/openapi/v1/tmc/dict/airports"
 SEARCH_PATH = "/openapi/v1/tmc/flight/search"
 VERIFY_PATH = "/openapi/v1/tmc/flight/verify"
-OFFER_ID_RE = re.compile(r"F[0-9A-F]{8}")
+QUOTE_ID_RE = re.compile(r"Q[0-9A-F]{8}")
 
 
 def _fixture(name: str) -> dict:
@@ -95,7 +97,7 @@ def _airports_responder(url: str) -> tuple[int, dict]:
 def _flight_state(monkeypatch):
     tmc_client._tokens.clear()
     tmc_client._airport_cache.clear()
-    tools_flights._offers.clear()
+    quotes._quotes.clear()
     monkeypatch.setattr(
         _common,
         "secret",
@@ -105,7 +107,7 @@ def _flight_state(monkeypatch):
     monkeypatch.setattr(_common, "_limiter", _common.RateLimiter())
     yield
     tmc_client._tokens.clear()
-    tools_flights._offers.clear()
+    quotes._quotes.clear()
 
 
 def _install(monkeypatch, routes: dict | None = None) -> FakeTmc:
@@ -211,10 +213,8 @@ def test_results_are_sorted_cheapest_first_and_capped(monkeypatch):
 
     body = json.loads(tools_flights.search_flights(_search_args(max_results=2)))
 
-    prices = [flight["price"]["amount"] for flight in body["flights"]]
-    expected = sorted(offer["totalSalePrice"] for _flight, offer in _fixture_offers())[
-        :2
-    ]
+    prices = [Decimal(flight["price"]["amount"]) for flight in body["flights"]]
+    expected = sorted(Decimal(str(offer["totalSalePrice"])) for _flight, offer in _fixture_offers())[:2]
     assert prices == expected
     assert len(body["flights"]) == 2
     assert body["total_offers"] == len(_fixture_offers())
@@ -273,13 +273,13 @@ def test_no_inventory_is_an_empty_result_with_a_hint_not_an_error(monkeypatch):
     assert "No flights are on sale" in body["hint"]
 
 
-def test_offer_ids_are_short_and_the_price_key_never_reaches_the_model(monkeypatch):
+def test_quote_ids_are_short_and_the_price_key_never_reaches_the_model(monkeypatch):
     _install(monkeypatch)
 
     result = tools_flights.search_flights(_search_args(max_results=3))
     body = json.loads(result)
 
-    assert all(OFFER_ID_RE.fullmatch(flight["offer_id"]) for flight in body["flights"])
+    assert all(QUOTE_ID_RE.fullmatch(flight["quote_id"]) for flight in body["flights"])
     assert "priceKey" not in result
     assert body["note"] == _common.UNTRUSTED_NOTE
 
@@ -332,13 +332,13 @@ def test_get_flight_offer_verifies_the_cheapest_searched_fare(monkeypatch):
         "flights"
     ][0]
 
-    tools_flights.get_flight_offer({"offer_id": first["offer_id"]})
+    tools_flights.get_flight_offer({"quote_id": first["quote_id"]})
 
     cheapest = min(_fixture_offers(), key=lambda pair: pair[1]["totalSalePrice"])[1]
     assert fake.bodies[VERIFY_PATH][0]["priceKey"] == cheapest["priceKey"]
 
 
-def test_offer_ids_are_bound_to_the_caller_who_searched(monkeypatch):
+def test_quote_ids_are_bound_to_the_caller_who_searched(monkeypatch):
     _install(
         monkeypatch,
         {
@@ -348,19 +348,19 @@ def test_offer_ids_are_bound_to_the_caller_who_searched(monkeypatch):
             )
         },
     )
-    offer_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
+    quote_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
         "flights"
-    ][0]["offer_id"]
+    ][0]["quote_id"]
     monkeypatch.setattr(_common, "caller_id", lambda: "user-b")
 
-    result = tools_flights.get_flight_offer({"offer_id": offer_id})
+    result = tools_flights.get_flight_offer({"quote_id": quote_id})
 
-    assert _error_code(result) == "offer_expired"
+    assert _error_code(result) == "quote_unknown"
 
 
-def test_offer_ids_expire_after_fifteen_minutes(monkeypatch):
+def test_quote_ids_expire_after_thirty_minutes(monkeypatch):
     clock = [1000.0]
-    monkeypatch.setattr(tools_flights.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(quotes.time, "monotonic", lambda: clock[0])
     _install(
         monkeypatch,
         {
@@ -370,17 +370,17 @@ def test_offer_ids_expire_after_fifteen_minutes(monkeypatch):
             )
         },
     )
-    offer_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
+    quote_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
         "flights"
-    ][0]["offer_id"]
+    ][0]["quote_id"]
 
-    clock[0] = 1000.0 + 14 * 60
-    assert "price" in json.loads(tools_flights.get_flight_offer({"offer_id": offer_id}))
+    clock[0] = 1000.0 + 29 * 60
+    assert "price" in json.loads(tools_flights.get_flight_offer({"quote_id": quote_id}))
 
-    clock[0] = 1000.0 + 16 * 60
+    clock[0] = 1000.0 + 31 * 60
     assert (
-        _error_code(tools_flights.get_flight_offer({"offer_id": offer_id}))
-        == "offer_expired"
+        _error_code(tools_flights.get_flight_offer({"quote_id": quote_id}))
+        == "quote_unknown"
     )
 
 
@@ -393,15 +393,15 @@ def test_verify_renders_live_price_rules_and_a_price_change(monkeypatch):
     ][0]
 
     body = json.loads(
-        tools_flights.get_flight_offer({"offer_id": searched["offer_id"]})
+        tools_flights.get_flight_offer({"quote_id": searched["quote_id"]})
     )
 
-    assert body["price"] == {"amount": 900.0, "currency": "USD"}
+    assert body["price"] == {"amount": "900.00", "currency": "USD"}
     assert body["searched_price"]["amount"] == searched["price"]["amount"]
     assert "price changed" in body["hint"]
     windows = {(item["when"], item["fee"]["amount"]) for item in body["refund_rules"]}
-    assert ("before departure", 176.0) in windows
-    assert ("after departure", 376.0) in windows
+    assert ("before departure", "176.00") in windows
+    assert ("after departure", "376.00") in windows
     assert len(body["refund_rules"]) == len(windows)
     assert body["baggage"]["checked"].endswith("KG")
     assert not re.search(r"<[^>]+>", body["booking_notice"])
@@ -414,11 +414,11 @@ def test_unchanged_price_is_not_repeated_as_a_change(monkeypatch):
         "flights"
     ][0]
     verify = copy.deepcopy(_fixture("tmc_flight_verify.json")["data"])
-    verify["offerData"]["totalSalePrice"] = searched["price"]["amount"]
+    verify["offerData"]["totalSalePrice"] = float(searched["price"]["amount"])
     _install(monkeypatch, {("POST", VERIFY_PATH): (200, {"code": "0", "data": verify})})
 
     body = json.loads(
-        tools_flights.get_flight_offer({"offer_id": searched["offer_id"]})
+        tools_flights.get_flight_offer({"quote_id": searched["quote_id"]})
     )
 
     assert "searched_price" not in body
@@ -435,21 +435,21 @@ def test_a_fare_the_supplier_no_longer_sells_is_offer_expired(monkeypatch):
             )
         },
     )
-    offer_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
+    quote_id = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
         "flights"
-    ][0]["offer_id"]
+    ][0]["quote_id"]
 
     assert (
-        _error_code(tools_flights.get_flight_offer({"offer_id": offer_id}))
-        == "offer_expired"
+        _error_code(tools_flights.get_flight_offer({"quote_id": quote_id}))
+        == "quote_unknown"
     )
 
 
-def test_offer_id_must_look_like_an_offer_id(monkeypatch):
+def test_quote_id_must_look_like_an_quote_id(monkeypatch):
     fake = _install(monkeypatch)
 
     assert (
-        _error_code(tools_flights.get_flight_offer({"offer_id": "abc"}))
+        _error_code(tools_flights.get_flight_offer({"quote_id": "abc"}))
         == "invalid_arguments"
     )
     assert ("POST", VERIFY_PATH) not in fake.requests
@@ -462,3 +462,47 @@ def test_flight_tools_are_gated_on_the_tmc_credentials_only():
         "search_flights": (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV),
         "get_flight_offer": (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV),
     }
+
+
+def _flight_data(currency: str | None = None) -> dict:
+    data = copy.deepcopy(_fixture("tmc_flight_search.json")["data"])
+    if currency is not None:
+        for flight in data["flight"]:
+            for offer in flight["offerPriceList"]:
+                offer["currency"] = currency
+    return data
+
+
+def test_a_shown_fare_is_remembered_with_its_legs_party_and_usd_total(monkeypatch):
+    _install(monkeypatch)
+
+    first = json.loads(tools_flights.search_flights(_search_args(max_results=1, adults=2)))["flights"][0]
+
+    quote = quotes._quotes[first["quote_id"]]
+    assert quote.kind == quotes.FLIGHT
+    assert quote.owner[1] == "user-a"
+    fare = quote.facts
+    assert fare.adults == 2
+    assert fare.total.amount == Decimal(first["price"]["amount"])
+    assert [leg.carrier for leg in fare.legs] == [segment["flight"][:2] for segment in first["segments"]]
+    assert fare.legs[0].origin == "HKG" and fare.legs[0].depart_local.strftime("%Y-%m-%d %H:%M") == first["depart"]["local"]
+    assert fare.price_key  # the supplier's key, kept for verification and never shown
+
+
+def test_a_fare_in_a_converted_currency_is_approximate_and_still_orderable(monkeypatch):
+    _install(monkeypatch, {("POST", SEARCH_PATH): (200, {"code": "0", "data": _flight_data("GBP")})})
+
+    first = json.loads(tools_flights.search_flights(_search_args(max_results=1)))["flights"][0]
+
+    assert first["price"]["approximate"] is True
+    assert first["price"]["supplier_price"]["currency"] == "GBP"
+    assert "quote_id" in first
+
+
+def test_a_fare_in_a_currency_without_a_rate_is_unconverted_and_cannot_be_ordered(monkeypatch):
+    _install(monkeypatch, {("POST", SEARCH_PATH): (200, {"code": "0", "data": _flight_data("XYZ")})})
+
+    first = json.loads(tools_flights.search_flights(_search_args(max_results=1)))["flights"][0]
+
+    assert first["price"]["unconverted"] is True
+    assert "quote_id" not in first

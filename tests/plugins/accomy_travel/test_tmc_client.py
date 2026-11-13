@@ -162,6 +162,28 @@ def test_business_call_signs_the_exact_bytes_it_sends_and_carries_the_session(
     )
 
 
+@pytest.mark.parametrize("method, path", [
+    ("POST", "/flight/order"),
+    ("POST", "/flight/order/init"),
+    ("POST", "/flight/orders/FO123/cancel"),
+    ("POST", "/flight/change/apply"),
+    ("POST", "/flight/refund/apply"),
+    ("POST", "/hotel/order"),
+    ("GET", "/hotel/order"),
+    ("POST", "/hotel/check-booking"),
+    ("POST", "/hotel/123"),
+])
+def test_order_payment_and_after_sale_endpoints_never_reach_the_supplier(monkeypatch, method, path):
+    """Orders live in the bot's own database: the client sends lookups, searches and the price check only."""
+    fake = _install(monkeypatch, {(method, f"/openapi/v1/tmc{path}"): (200, {"code": "0", "data": {"orderCode": "X"}})})
+
+    with pytest.raises(_common.ApiError) as refused:
+        tmc_client.call(method, path, body={"priceKey": "k"})
+
+    assert refused.value.code == "not_allowed"
+    assert f"/openapi/v1/tmc{path}" not in fake.paths()
+
+
 def test_session_token_is_minted_once_and_reused(monkeypatch):
     routes = {
         ("GET", "/openapi/v1/tmc/dict/airports"): (200, {"code": "0", "data": []})

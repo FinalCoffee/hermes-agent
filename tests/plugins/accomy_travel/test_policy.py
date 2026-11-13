@@ -46,8 +46,21 @@ def test_rendered_prompt_carries_every_section_within_the_budget(accomy_manager)
     assert len(prompt) <= 8_000
 
 
-def test_persona_states_the_no_booking_limit():
-    assert "cannot book" in dict(policy.SECTIONS)["accomy.persona"]
+def test_persona_says_demonstration_orders_are_not_placed_with_the_supplier():
+    assert "not placed with the supplier" in dict(policy.SECTIONS)["accomy.persona"]
+
+
+def test_tools_section_keeps_hotel_and_flight_search_on_accomys_own_tools():
+    section = dict(policy.SECTIONS)["accomy.tools"]
+    assert "Hotels and flights come only from Accomy's own search" in section
+    assert "Never use research_web" in section
+
+
+def test_orders_section_requires_a_summary_and_an_explicit_yes_before_placing():
+    section = dict(policy.SECTIONS)["accomy.orders"]
+    assert "place_order" in section
+    assert "explicit yes" in section
+    assert "no payment was taken" in section
 
 
 def test_suggestion_section_teaches_a_marker_the_footer_parser_accepts():

@@ -15,6 +15,7 @@ from plugins.accomy_travel import (
     tools_events,
     tools_flights,
     tools_hotels,
+    tools_orders,
     tools_places,
     tools_research,
 )
@@ -26,8 +27,9 @@ SECRETS = (
     "SEATUNIQUE_API_TOKEN",
     "GOOGLE_MAPS_SERVER_API_KEY",
     "BRAVE_SEARCH_API_KEY",
+    "ACCOMY_DATABASE_URL",
 )
-TOOL_MODULES = (tools_places, tools_hotels, tools_flights, tools_events, tools_research)
+TOOL_MODULES = (tools_places, tools_hotels, tools_flights, tools_events, tools_research, tools_orders)
 TOOLSET = "accomy_travel"
 
 

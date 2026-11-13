@@ -42,6 +42,7 @@ def clock(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(ingress, "_gate_limiter", _common.RateLimiter(clock=clock))
     monkeypatch.setattr(ingress, "_notice_limiter", _common.RateLimiter(clock=clock))
+    monkeypatch.setattr(ingress, "_welcome_limiter", _common.RateLimiter(clock=clock))
     return clock
 
 
@@ -127,7 +128,7 @@ async def test_refused_long_text_never_spends_the_sender_budget(clock):
     await _exhaust("42")  # the full allowance is still there
 
 
-@pytest.mark.parametrize("text", ["/stop", "/new", "/start", "/help", "/whoami", "/stop@AccomyAIBot", "/stop@OtherBot", " /help "])
+@pytest.mark.parametrize("text", ["/stop", "/new", "/stop@AccomyAIBot", "/stop@OtherBot", " /new "])
 @_run
 async def test_session_commands_pass_uncounted_even_when_the_sender_is_limited(text):
     gateway = _Gateway()
@@ -136,7 +137,7 @@ async def test_session_commands_pass_uncounted_even_when_the_sender_is_limited(t
     assert await _gate(_event(text=text, user="42", chat="42"), gateway) is None
 
 
-@pytest.mark.parametrize("text", ["/unknown text", "/stop please", "/start please", "/stop@OtherBot please", "/model gpt", "/STOP"])
+@pytest.mark.parametrize("text", ["/unknown text", "/stop please", "/stop@OtherBot please", "/model gpt", "/STOP"])
 @_run
 async def test_any_other_slash_text_is_an_ordinary_counted_turn(text):
     gateway = _Gateway()
@@ -240,9 +241,9 @@ async def test_the_notice_is_sent_into_the_topic_the_message_came_from():
 @_run
 async def test_a_flood_of_session_commands_stops_being_answered_and_spends_no_turns(clock):
     for _ in range(ingress.COMMANDS_PER_MINUTE):
-        assert await _gate(_event(text="/start")) is None
+        assert await _gate(_event(text="/stop")) is None
 
-    assert await _gate(_event(text="/start")) == {"action": "skip", "reason": "accomy_command_flood"}
+    assert await _gate(_event(text="/stop")) == {"action": "skip", "reason": "accomy_command_flood"}
     await _exhaust("42")  # the model-turn allowance is untouched
 
     clock.now += 60.0
@@ -352,6 +353,168 @@ async def test_notices_have_a_bot_wide_total_so_many_limited_accounts_are_not_al
 async def test_session_commands_have_a_bot_wide_total(monkeypatch):
     monkeypatch.setattr(ingress, "GLOBAL_COMMANDS_PER_MINUTE", 4)
     for account in range(4):
-        assert await _gate(_event(text="/help", user=str(account), chat=str(account))) is None
+        assert await _gate(_event(text="/help", user=str(account), chat=str(account))) == {
+            "action": "skip", "reason": "accomy_help"}
 
     assert await _gate(_event(text="/help", user="9", chat="9")) == {"action": "skip", "reason": "accomy_command_flood"}
+
+
+WELCOME_EN = "Hello, I'm the Accomy travel assistant"
+WELCOME_ZH = "您好，我是 Accomy 旅遊助理"
+
+
+def _with_language(event, code):
+    event.raw_message = SimpleNamespace(from_user=SimpleNamespace(language_code=code))
+    return event
+
+
+def _sending_gateway(allowed=None):
+    gateway = _Gateway(allowed)
+    gateway.adapter.send = AsyncMock(return_value=SimpleNamespace(success=True, message_id="9", raw_response=None))
+    gateway.adapter.attach_suggested_replies = AsyncMock(return_value=True)
+    return gateway
+
+
+def _group_event(text):
+    source = SessionSource(platform=Platform.TELEGRAM, user_id="42", chat_id="-100", user_name="t", chat_type="group")
+    return MessageEvent(text=text, message_id="m1", source=source)
+
+
+@_run
+async def test_start_welcomes_an_english_client_with_suggested_replies_in_a_private_chat():
+    gateway = _sending_gateway()
+    event = _with_language(_event(text="/start"), "en-US")
+
+    assert await _gate(event, gateway) == {"action": "skip", "reason": "accomy_start"}
+    gateway.adapter.send.assert_awaited_once()
+    assert gateway.adapter.send.await_args.args[1].startswith(WELCOME_EN)
+    gateway.adapter.attach_suggested_replies.assert_awaited_once()
+    source, message_id, options = gateway.adapter.attach_suggested_replies.await_args.args
+    assert source is event.source and message_id == "9"
+    assert 1 <= len(options) <= 4 and all(len(option) <= 40 for option in options)
+
+
+@pytest.mark.parametrize("code", ["zh-hant-TW", "zh-hans", None])
+@_run
+async def test_any_other_client_language_gets_the_traditional_chinese_welcome(code):
+    gateway = _sending_gateway()
+
+    await _gate(_with_language(_event(text="/start"), code), gateway)
+
+    assert gateway.adapter.send.await_args.args[1].startswith(WELCOME_ZH)
+
+
+@pytest.mark.parametrize("text", ["/start abc_123", "/start@AccomyAIBot", "/start@AccomyAIBot abc"])
+@_run
+async def test_deep_links_and_bot_suffixed_start_get_the_welcome_and_no_model_turn(text):
+    gateway = _sending_gateway()
+
+    assert await _gate(_event(text=text), gateway) == {"action": "skip", "reason": "accomy_start"}
+    assert gateway.adapter.send.await_args.args[1].startswith(WELCOME_ZH)
+
+
+@_run
+async def test_a_group_welcome_is_text_only():
+    gateway = _sending_gateway()
+
+    assert await _gate(_group_event("/start"), gateway) == {"action": "skip", "reason": "accomy_start"}
+    gateway.adapter.send.assert_awaited_once()
+    gateway.adapter.attach_suggested_replies.assert_not_awaited()
+
+
+@_run
+async def test_a_start_repeated_within_three_seconds_sends_nothing_and_after_them_welcomes_again(clock):
+    gateway = _sending_gateway()
+    assert await _gate(_event(text="/start"), gateway) == {"action": "skip", "reason": "accomy_start"}
+
+    clock.now += 2.9
+    assert await _gate(_event(text="/start"), gateway) == {"action": "skip", "reason": "accomy_welcome_repeat"}
+    assert gateway.adapter.send.await_count == 1
+
+    clock.now += 0.1
+    assert await _gate(_event(text="/start"), gateway) == {"action": "skip", "reason": "accomy_start"}
+    assert gateway.adapter.send.await_count == 2
+    assert gateway.adapter.send.await_args.args[1].startswith(WELCOME_ZH)
+
+
+@_run
+async def test_one_senders_welcome_window_does_not_hold_back_another_sender():
+    gateway = _sending_gateway()
+    await _gate(_event(text="/start"), gateway)
+
+    assert await _gate(_event(text="/start", user="9", chat="9"), gateway) == {"action": "skip", "reason": "accomy_start"}
+    assert gateway.adapter.send.await_count == 2
+
+
+@_run
+async def test_a_flood_of_starts_stops_being_answered_at_the_command_budget(clock):
+    gateway = _sending_gateway()
+    for _ in range(ingress.COMMANDS_PER_MINUTE - 1):
+        await _gate(_event(text="/start"), gateway)
+        clock.now += ingress.WELCOME_WINDOW_SECONDS
+    await _gate(_event(text="/start"), gateway)
+
+    assert await _gate(_event(text="/start"), gateway) == {"action": "skip", "reason": "accomy_command_flood"}
+    assert gateway.adapter.send.await_count == ingress.COMMANDS_PER_MINUTE
+
+
+@pytest.mark.parametrize("text", ["/help", "/whoami", "/commands"])
+@_run
+async def test_help_whoami_and_commands_get_the_short_help_without_buttons(text):
+    gateway = _sending_gateway()
+
+    assert await _gate(_event(text=text), gateway) == {"action": "skip", "reason": "accomy_help"}
+    reply = gateway.adapter.send.await_args.args[1]
+    assert "/new" in reply and "/stop" in reply
+    assert "42" not in reply  # /whoami does not show the sender's ID any more
+    gateway.adapter.attach_suggested_replies.assert_not_awaited()
+
+
+@_run
+async def test_a_stranger_gets_no_welcome_from_the_plugin():
+    gateway = _sending_gateway(allowed=["1"])
+
+    assert await _gate(_event(text="/start", user="42", chat="42"), gateway) is None
+    gateway.adapter.send.assert_not_awaited()
+
+
+@_run
+async def test_a_failed_welcome_is_logged_and_still_skipped_so_no_model_turn_runs():
+    gateway = _sending_gateway()
+    gateway.adapter.send.side_effect = RuntimeError("telegram is down")
+
+    assert await _gate(_event(text="/start"), gateway) == {"action": "skip", "reason": "accomy_start"}
+
+
+@_run
+async def test_a_flood_of_help_commands_is_the_command_budget_not_the_model_turn_budget(clock):
+    gateway = _sending_gateway()
+    for _ in range(ingress.COMMANDS_PER_MINUTE):
+        await _gate(_event(text="/help"), gateway)
+
+    assert await _gate(_event(text="/help"), gateway) == {"action": "skip", "reason": "accomy_command_flood"}
+    assert await _gate(_event(text="hello"), gateway) is None  # an ordinary turn is still allowed
+
+
+def test_every_welcome_text_reaches_telegram_with_its_punctuation_intact():
+    """The send path escapes plain text as MarkdownV2; unescaping the result must give back the text exactly."""
+    import re
+
+    from plugins.accomy_travel import welcome
+    from plugins.platforms.telegram.telegram_markdown import to_markdown_v2
+
+    for replies in welcome._REPLIES.values():
+        for reply in replies.values():
+            escaped = to_markdown_v2(reply.text)
+            assert re.sub(r"\\(.)", r"\1", escaped) == reply.text
+
+
+@_run
+async def test_a_failure_inside_the_gate_drops_the_message_instead_of_letting_it_through(monkeypatch):
+    def broken(_sender):
+        raise RuntimeError("limiter state is corrupt")
+
+    monkeypatch.setattr(ingress, "_refused_by", broken)
+
+    assert await _gate(_event(), _Gateway()) == {"action": "skip", "reason": "accomy_gate_error"}
+    assert await _gate(_event(user="7"), _Gateway(allowed=set())) is None  # a stranger still reaches the gateway's own refusal

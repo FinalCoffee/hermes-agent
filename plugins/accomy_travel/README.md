@@ -1,16 +1,17 @@
 # Accomy AI Travel (Hermes plugin)
 
 A Telegram travel-planning assistant. It searches hotels, flights, event tickets, places, weather and the
-public web, and helps the traveller compare options and plan day by day. It is **search and pricing only**:
-it cannot book, pay, reserve or cancel anything. When asked to book, it says so and offers to summarise the
-chosen options.
+public web, prices everything in US dollars, and helps the traveller compare options and plan day by day. It
+can take **demonstration orders** for hotels, flights and event tickets from a private chat. Those orders are
+recorded in the order database only: nothing is placed with a supplier, no payment is taken, and no supplier
+confirmation number or e-ticket is ever issued.
 
 The plugin is `plugins/accomy_travel/`. The operator profile is `distributions/accomy/`.
 
 ## Tools
 
-All twelve tools sit in the `accomy_travel` toolset. A tool is offered to the model only when the secrets it
-needs are set.
+The twelve search tools and the four order tools sit in the `accomy_travel` toolset. A tool is offered to the
+model only when the secrets it needs are set; the order tools also need `ACCOMY_DATABASE_URL`.
 
 | Tool | What it does | Needs |
 |---|---|---|
@@ -26,8 +27,42 @@ needs are set.
 | `search_events` | Events and tickets (Seat Unique) | `SEATUNIQUE_API_TOKEN` |
 | `get_event_tickets` | Ticket categories for one event | `SEATUNIQUE_API_TOKEN` |
 | `research_web` | Public-web answers with source URLs (Brave) | `BRAVE_SEARCH_API_KEY` |
+| `place_order` | Places a demonstration order for 1 to 3 quotes from the search results | `ACCOMY_DATABASE_URL` |
+| `list_trips` | This chat's trips, newest first, each with its orders | `ACCOMY_DATABASE_URL` |
+| `get_order` | One of this chat's orders, with its items | `ACCOMY_DATABASE_URL` |
+| `cancel_order` | Cancels one of this chat's demonstration orders | `ACCOMY_DATABASE_URL` |
 
 Directions are not a tool. The assistant gives Google Maps links instead, because Google Routes is not enabled.
+
+**Prices and quotes.** Every price a tool returns is in US dollars, through `fx.py`. A supplier price in another
+currency is converted with a fixed demo table of reference rates, rounded up to the cent, and marked
+`"approximate": true` with the supplier's own amount in `supplier_price`. A currency the table lacks stays in
+its own currency with `"unconverted": true` and cannot be ordered. Each hotel rate, flight offer and event listing
+that can be ordered carries a `quote_id`, which expires after 30 minutes. `quotes.py` keeps what each caller was
+shown, bound to that caller, capped per caller and overall, and in memory: a restart forgets the quotes, and the
+caller searches again. `place_order` takes quote ids only, and builds the order from what was shown, so no price
+or supplier id comes from the model.
+
+**Placing an order.** `place_order` needs a private Telegram chat with a real sender, the lead traveller's name
+and a phone or an email. Flights need every passenger's name; hotels need at least the lead guest. The order is
+stored as `SIMULATED`: its items are confirmed in the database with fulfilment `NOT_APPLICABLE`, and no
+`o_supplier_request` row is ever written for it. The database refuses a supplier request for a simulated order.
+Placing the same quotes, with the same details, on the same calendar day (UTC) returns the first order.
+
+**Suppliers are only read.** The TMC client enforces the same line on the wire: it sends only the session, lookup, search and price-check
+endpoints listed in `tmc_client._READ_ENDPOINTS`, and refuses any other path (create order, pay, cancel, change,
+refund) before a request is made, with whatever key is configured. The Seat Unique client only reads. Hotels
+and flights are searched through these tools only: the policy tells the model never to find or price them with
+`research_web`.
+
+**Trips.** Every order belongs to a trip, the master record of one journey. The first order starts a trip (named
+by `trip_title`, or after its first item); a later order for the same journey passes that trip's `trip_code`.
+`list_trips` shows each trip with the orders under it.
+
+**Demo payment link.** When `plugins.entries.accomy_travel.settings.payment_url` and the secret
+`ACCOMY_PAYMENT_LINK_SECRET` are both set, a confirmed order carries `payment_url`: a signed link to the demo
+payment page in `deploy/accomy/payment-demo/`. That page charges nothing; pressing Pay there sends the user a
+Telegram message. The bot is not told, so it never says an order is paid.
 
 ## Secrets
 
@@ -40,6 +75,7 @@ Names only. Values go in the profile's `.env`, never in the distribution files.
 - `BRAVE_SEARCH_API_KEY`: web research
 - `TELEGRAM_BOT_TOKEN`: the bot token from @BotFather
 - `TELEGRAM_ALLOWED_USERS`: optional, see Access below
+- `ACCOMY_PAYMENT_LINK_SECRET`: optional, the key that signs demo payment links (the payment page holds the same key)
 - `ACCOMY_DATABASE_URL`: optional, the order store's PostgreSQL connection string (see Order store below)
 
 ## Install the profile
@@ -89,9 +125,10 @@ them. The limits are in-process and apply to every chat at once. A restart reset
   cannot exceed this. Accounts that the allowlist refuses are not counted, so a stranger cannot use up this budget.
   A refused stranger gets only the gateway's own decline or pairing reply.
 - **Messages sent while the bot is still answering** each count when they arrive, like any other message.
-- **Session commands cost no turn:** `/stop`, `/new`, `/start`, `/help` and `/whoami`, with an optional
-  `@botname`. Past 20 a minute from one sender, or 120 a minute in total, the bot stops answering them. Any other text that starts with
-  `/` counts as a turn.
+- **Session commands cost no turn:** `/new` and `/stop` go to the gateway. `/start` (with a deep-link payload or
+  `@botname`), `/help`, `/whoami` and `/commands` are answered by the plugin itself with a welcome or a short
+  help, with no model call. Past 20 a minute from one sender, or 120 a minute in total, the bot stops answering
+  them. Every `/start` is welcomed, a repeated one too, except one sent within 3 seconds of the sender's last. Any other text that starts with `/` counts as a turn.
 - **Message length:** 4,096 characters, one Telegram message. A longer message is dropped before any model call.
   The gateway can still join messages that arrive while a turn is being set up, so one turn can carry up to a
   minute's allowance of messages (about 60,000 characters). The turn limit is what bounds that.
@@ -159,6 +196,19 @@ telegram:
 
 Do not delete the lists. An empty list turns gating off, and every user then gets every command.
 
+## What end users see
+
+The profile is for end users, so nothing about the agent underneath reaches them:
+
+- `gateway.hide_operator_details: true` makes the gateway leave model, provider, session and error internals out
+  of its replies, and leaves the host and profile paths out of what the model is told.
+- `distributions/accomy/locales/en.yaml` rewords or blanks every gateway message a user can reach (the
+  home-channel notice, the `/new` reply, refusals, errors, the busy and long-running notices). A test fails when
+  an upstream message that names the agent is neither reworded there nor listed as operator-only.
+- Telegram's command menu lists only `/start`, `/new`, `/stop` and `/help`.
+- `/start` greets the user with a welcome and suggested replies, and `/help` explains what the assistant does.
+  Both come from `welcome.py`, in English when the user's Telegram is in English, otherwise in Traditional Chinese.
+
 ## Suggested-reply buttons
 
 With `telegram.suggested_replies: true`, the assistant ends each reply with a line such as
@@ -169,7 +219,13 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
 
 ## Limits
 
-- Search and pricing only. Nothing books, pays or cancels.
+- Demonstration orders only. An order is recorded in the order database and never sent to a supplier; no payment
+  is taken, so a cancellation refunds nothing.
+- Order limits, counted in the database so a restart does not forget them: 100 orders per chat per day, 300 orders
+  for everyone per day (rolling 24 hours), 3 items per order, 10 event tickets per item, 9 travellers per order,
+  and quotes that expire after 30 minutes. A refused order says why in the chat.
+- Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
+- Prices are converted with a fixed demo table of reference rates, so converted prices are approximate.
 - Supplier environments may be sandboxes, so prices and availability are indicative.
 - Google Routes is not enabled. Directions are Google Maps links.
 - Weather covers about 10 days ahead.
@@ -186,8 +242,29 @@ segments, or event tickets), the travellers on a line, a log of every write sent
 (`o_supplier_request`) and a history of status changes (`o_booking_event`). The schema and the reasons behind
 it are in `orderstore/migrations/0001_2026-11-13_order-baseline.sql`.
 
-**No tool uses the store yet.** The bot is still search and pricing only, and nothing calls a supplier's
-order, payment or cancel endpoint. `orderstore/store.py` is the interface a booking tool will call.
+The order tools use the store through `tools_orders.py`, and the store's calls reach it through `orderbridge.py`:
+one daemon thread runs one asyncio loop for the process, and each call opens its own connection on it. Only the
+simulated flow exists. Nothing calls a supplier's order, payment or cancel endpoint, and the store refuses a
+supplier request for a simulated order. Migration `0002` adds `c_fx_rate` (the exchange rates an item was
+converted at, append-only), `o_booking.order_mode` (`SUPPLIER` or `SIMULATED`, never changed) and the item's
+source currency, source amount and rate. Migration `0003` adds the customer master (`o_customer`: a Telegram
+account id, an email, or both) and the trip master (`o_trip`), and ties every booking to one customer and one of
+that customer's trips:
+
+```
+o_customer 1 ── n o_trip 1 ── n o_booking 1 ── n o_booking_item (hotel, flight or event)
+```
+
+An operator finds a customer, with their trips and orders, by Telegram id or by email:
+
+```bash
+hermes -p accomy accomy-orders customer --telegram 123456789
+hermes -p accomy accomy-orders customer --email someone@example.com
+```
+
+That lookup is deliberately not a bot tool: in a chat, a user reaches only the orders of their own Telegram
+account, so typing someone else's email opens nothing. `erase_customer` erases a person everywhere and keeps
+their orders.
 
 Set `ACCOMY_DATABASE_URL` in the profile's `.env`, for example
 `postgresql://user:password@host:5432/chatbot?sslmode=verify-full`. The CA that signed the server's certificate
@@ -240,9 +317,8 @@ Left for the step that adds booking tools, each needing a decision first:
 - Tax and fee lines, cancellation terms as data, tickets and vouchers, refunds, payments, and the inbox for
   supplier callbacks. hashtrip has a table for each; this schema has none yet.
 - Which order follows which item automatically (hashtrip derives the booking's status from its items).
-- Tool handlers are synchronous and the driver is asynchronous: the tools need one event loop thread that
-  owns a connection pool.
-- Amounts keep two decimals for every currency, as in hashtrip.
+- A pool for the order store, once measured: each call opens one connection today.
+- Amounts keep two decimals in the booking and up to four in a supplier amount, as the columns hold them.
 
 Tests run against a real PostgreSQL 17 on `127.0.0.1:55433` and are skipped without it. The command to start
 one is at the top of `tests/plugins/accomy_travel/test_orderstore.py`.

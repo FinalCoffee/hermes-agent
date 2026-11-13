@@ -49,6 +49,8 @@ services:
       # the profile allows. Edit the host file and restart to change the profile.
       - ${ACCOMY_CONFIG:-../../distributions/accomy/config.yaml}:/opt/data/config.yaml:ro
       - ${ACCOMY_SOUL:-../../distributions/accomy/SOUL.md}:/opt/data/SOUL.md:ro
+      # The end-user wording (the gateway reads /opt/data/locales/en.yaml before its own pack).
+      - ${ACCOMY_LOCALES:-../../distributions/accomy/locales}:/opt/data/locales:ro
       - ${ACCOMY_DB_CA:-./rds-ca-ap-southeast-1.crt}:/etc/accomy/rds-ca.pem:ro
     # The image is immutable at run time: only the data volume and these in-memory mounts are writable.
     read_only: true

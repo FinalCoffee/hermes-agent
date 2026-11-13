@@ -48,6 +48,7 @@ _NO_SUPPLIER_ORDER = {"NOT_SENT", "NOT_APPLICABLE", "REJECTED", "CANCELLED_BY_SU
 _FINAL_BOOKING = {"CANCELLED", "COMPLETED", "FAILED", "EXPIRED"}
 _CLIENT_KEY = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 _RESULT_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+MODES = ("SUPPLIER", "SIMULATED")
 
 
 class OrderError(Exception):
@@ -137,6 +138,17 @@ _KIND_OF = {HotelStay: "HOTEL", FlightItinerary: "FLIGHT", EventTickets: "EVENT_
 
 
 @dataclass(frozen=True)
+class FxConversion:
+    """How an item's price in the supplier's currency became the booking's: the rate, and when and by whom."""
+
+    source_amount: Decimal
+    source_currency: str
+    rate: Decimal
+    as_of: datetime
+    provider: str
+
+
+@dataclass(frozen=True)
 class NewItem:
     source: str
     title: str
@@ -144,6 +156,7 @@ class NewItem:
     detail: HotelStay | FlightItinerary | EventTickets
     quantity: int = 1
     travellers: tuple[Traveller, ...] = ()
+    conversion: FxConversion | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +167,10 @@ class NewBooking:
     items: tuple[NewItem, ...]
     contact: Contact = Contact()
     client_key: str | None = None
+    mode: str = "SUPPLIER"
+    # The customer's existing trip to add this order to; without it the order starts a new trip.
+    trip_code: str | None = None
+    trip_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,6 +191,18 @@ class Item:
     version: int
     detail: dict[str, Any]
     travellers: tuple[dict[str, Any], ...]
+    conversion: FxConversion | None = None
+
+
+@dataclass(frozen=True)
+class Trip:
+    """The journey an order belongs to: the master record of one or more bookings."""
+
+    code: str
+    title: str
+    starts_on: date | None
+    ends_on: date | None
+    status: str
 
 
 @dataclass(frozen=True)
@@ -188,8 +217,10 @@ class Booking:
     total_amount: Decimal
     version: int
     created_at: datetime
+    order_mode: str = "SUPPLIER"
     items: tuple[Item, ...] = field(default=())
     replayed: bool = False
+    trip: Trip | None = None
 
 
 @dataclass(frozen=True)
@@ -217,8 +248,20 @@ def _wall_clock(*times: datetime | None) -> None:
         raise OrderError("bad_time", "A local time must not carry a time zone.")
 
 
-def _check_item(item: NewItem) -> None:
+def _check_conversion(conversion: FxConversion, currency: str) -> None:
+    """The item's currency is the rate's quote, and the supplier's amount and the rate have no more decimals than
+    their columns keep (four and ten): a silently rounded rate would not equal itself on the next order."""
+    if (conversion.source_currency == currency or not 0 < conversion.rate < Decimal("1e10")
+            or conversion.rate.quantize(Decimal("0.0000000001")) != conversion.rate
+            or conversion.source_amount.quantize(Decimal("0.0001")) != conversion.source_amount
+            or conversion.as_of.tzinfo is None):
+        raise OrderError("bad_rate", "A converted price needs a rate, a foreign currency and an instant with a zone.")
+
+
+def _check_item(item: NewItem, currency: str) -> None:
     detail = item.detail
+    if item.conversion is not None:
+        _check_conversion(item.conversion, currency)
     if isinstance(detail, HotelStay) and detail.check_out <= detail.check_in:
         raise OrderError("bad_dates", "Check-out must be after check-in.")
     if isinstance(detail, FlightItinerary):
@@ -231,17 +274,54 @@ def _check_item(item: NewItem) -> None:
 
 def _fingerprint(new: NewBooking) -> str:
     """SHA-256 of everything the request asks for, so a reused key cannot stand for another order."""
-    body = {"currency": new.currency, "locale": new.locale, "contact": dataclasses.asdict(new.contact),
+    body = {"currency": new.currency, "locale": new.locale, "mode": new.mode, "contact": dataclasses.asdict(new.contact),
             "items": [{**dataclasses.asdict(item), "kind": _KIND_OF[type(item.detail)]} for item in new.items]}
     return hashlib.sha256(json.dumps(body, sort_keys=True, default=_plain).encode()).hexdigest()
 
 
 def _plain(value: Any) -> str:
-    return f"{value:.2f}" if isinstance(value, Decimal) else str(value)
+    # Exact text: a rate of 1.3243 must not hash like 1.32.
+    return format(value, "f") if isinstance(value, Decimal) else str(value)
+
+
+def request_key(buyer: Buyer, client_key: str) -> str:
+    """The stored idempotency key: namespaced by the buyer, so two buyers may use the same client key."""
+    return f"{buyer.channel}:{buyer.ref}:{client_key}"
+
+
+async def has_client_key(conn: Any, buyer: Buyer, client_key: str) -> bool:
+    """Whether this buyer already placed a request under *client_key* (a replay would return that order)."""
+    return bool(await conn.fetchval("SELECT 1 FROM o_booking WHERE idempotency_key = $1", request_key(buyer, client_key)))
+
+
+async def count_orders(conn: Any, *, since_hours: int = 24, buyer: Buyer | None = None) -> int:
+    """Simulated orders placed in the last *since_hours*, by one buyer or, without *buyer*, by everyone.
+
+    Counted in the database, so a restart does not forget them. The caller holds a transaction lock while
+    it counts and places, so two orders cannot both see the last free place.
+    """
+    if buyer is None:
+        return await conn.fetchval(
+            "SELECT count(*) FROM o_booking WHERE order_mode = 'SIMULATED' AND created_dt > now() - make_interval(hours => $1)",
+            since_hours)
+    return await conn.fetchval(
+        """
+        SELECT count(*) FROM o_booking WHERE order_mode = 'SIMULATED' AND buyer_channel = $1 AND buyer_ref = $2
+          AND created_dt > now() - make_interval(hours => $3)
+        """,
+        buyer.channel, buyer.ref, since_hours)
 
 
 def new_booking_code() -> str:
     return "AC" + "".join(secrets.choice(_CODE_ALPHABET) for _ in range(12))
+
+
+def new_trip_code() -> str:
+    return "TR" + "".join(secrets.choice(_CODE_ALPHABET) for _ in range(12))
+
+
+class _LostRace(Exception):
+    """Another transaction committed the same request key first; unwinds the savepoint."""
 
 
 async def create_booking(conn: Any, new: NewBooking, *, actor: str) -> Booking:
@@ -253,25 +333,60 @@ async def create_booking(conn: Any, new: NewBooking, *, actor: str) -> Booking:
     """
     if not new.items:
         raise OrderError("no_items", "A booking needs at least one item.")
+    if new.mode not in MODES:
+        raise OrderError("bad_mode", "An order is SUPPLIER or SIMULATED.")
     for item in new.items:
-        _check_item(item)
+        _check_item(item, new.currency)
     total = sum((_money(item.sell_amount) for item in new.items), Decimal("0.00"))
     key = fingerprint = None
     if new.client_key is not None:
         if not _CLIENT_KEY.fullmatch(new.client_key):
             raise OrderError("bad_key", "A request key is 1 to 64 letters, digits, dots, dashes or underscores.")
-        key = f"{new.buyer.channel}:{new.buyer.ref}:{new.client_key}"
+        key = request_key(new.buyer, new.client_key)
         fingerprint = _fingerprint(new)
         if await conn.fetchval("SELECT 1 FROM o_booking WHERE idempotency_key = $1", key):
             return await _replay(conn, key, fingerprint, new.buyer)
-    booking_id = await _insert_booking(conn, new, total, key, fingerprint, actor)
-    if booking_id is None:  # another transaction committed the same key between the read and the insert
+    try:
+        async with conn.transaction():  # a savepoint: a lost race leaves no customer change and no empty trip
+            customer_id = await _ensure_customer(conn, new, actor)
+            trip_id = await _resolve_trip(conn, new, customer_id, actor)
+            booking_id = await _insert_booking(conn, new, total, key, fingerprint, customer_id, trip_id, actor)
+            if booking_id is None:  # the same key was committed between the read above and this insert
+                raise _LostRace
+    except _LostRace:
         return await _replay(conn, key, fingerprint, new.buyer)
     for seq, item in enumerate(new.items, start=1):
-        await _insert_item(conn, booking_id, seq, new.currency, item, actor)
+        rate_id = None
+        if item.conversion is not None:
+            rate_id = await _fx_rate_id(conn, new.currency, item.conversion)
+        await _insert_item(conn, booking_id, seq, new.currency, item, rate_id, actor)
     await _log(conn, booking_id, None, "CREATED", None, "DRAFT", actor)
     code = await conn.fetchval("SELECT booking_code FROM o_booking WHERE id = $1", booking_id)
     return await get_booking(conn, code, buyer=new.buyer)
+
+
+async def _fx_rate_id(conn: Any, currency: str, conversion: FxConversion) -> int:
+    """The rate row for this pair, provider and instant, written once. The same instant with another rate is refused:
+    a corrected rate is a new instant."""
+    row = await conn.fetchrow(
+        """
+        INSERT INTO c_fx_rate (base_currency, quote_currency, rate, as_of, provider_code)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT ON CONSTRAINT c_fx_rate_uk_pair_asof DO NOTHING
+        RETURNING id
+        """,
+        conversion.source_currency, currency, conversion.rate, conversion.as_of, conversion.provider)
+    if row is not None:
+        return row["id"]
+    existing = await conn.fetchrow(
+        """
+        SELECT id, rate FROM c_fx_rate
+        WHERE base_currency = $1 AND quote_currency = $2 AND provider_code = $3 AND as_of = $4
+        """,
+        conversion.source_currency, currency, conversion.provider, conversion.as_of)
+    if existing is None or existing["rate"] != conversion.rate:
+        raise OrderError("bad_rate", "The rate for this instant is already recorded with another value.")
+    return existing["id"]
 
 
 async def _replay(conn: Any, key: str, fingerprint: str, buyer: Buyer) -> Booking:
@@ -283,8 +398,90 @@ async def _replay(conn: Any, key: str, fingerprint: str, buyer: Buyer) -> Bookin
     return dataclasses.replace(booking, replayed=True)
 
 
+async def _ensure_customer(conn: Any, new: NewBooking, actor: str) -> int:
+    """The customer behind this order: found by Telegram account, else by email, else created.
+
+    The newest contact details win, so the customer master follows what the person last told the bot.
+    """
+    buyer, contact = new.buyer, new.contact
+    if buyer.channel == "telegram":
+        return await conn.fetchval(
+            """
+            INSERT INTO o_customer (telegram_user_id, email, display_name, phone, locale_code, created_by, updated_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            ON CONFLICT (telegram_user_id) WHERE telegram_user_id IS NOT NULL DO UPDATE SET
+                email = coalesce(excluded.email, o_customer.email),
+                display_name = coalesce(excluded.display_name, o_customer.display_name),
+                phone = coalesce(excluded.phone, o_customer.phone),
+                locale_code = excluded.locale_code, version = o_customer.version + 1, updated_by = excluded.updated_by
+            RETURNING id
+            """,
+            buyer.ref, contact.email, contact.name, contact.phone, new.locale, actor)
+    if not contact.email:
+        raise OrderError("no_customer", "An order outside Telegram needs a contact email to find its customer by.")
+    return await conn.fetchval(
+        """
+        INSERT INTO o_customer (email, display_name, phone, locale_code, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (lower(email)) WHERE telegram_user_id IS NULL AND email IS NOT NULL DO UPDATE SET
+            display_name = coalesce(excluded.display_name, o_customer.display_name),
+            phone = coalesce(excluded.phone, o_customer.phone),
+            locale_code = excluded.locale_code, version = o_customer.version + 1, updated_by = excluded.updated_by
+        RETURNING id
+        """,
+        contact.email, contact.name, contact.phone, new.locale, actor)
+
+
+def _span(items: tuple[NewItem, ...]) -> tuple[date | None, date | None]:
+    """The first and last calendar day the items cover."""
+    days: list[date] = []
+    for item in items:
+        detail = item.detail
+        if isinstance(detail, HotelStay):
+            days += [detail.check_in, detail.check_out]
+        elif isinstance(detail, FlightItinerary):
+            days += [detail.segments[0].depart_local.date(), detail.segments[-1].arrive_local.date()]
+        elif detail.starts_local is not None:
+            days.append(detail.starts_local.date())
+    return (min(days), max(days)) if days else (None, None)
+
+
+async def _resolve_trip(conn: Any, new: NewBooking, customer_id: int, actor: str) -> int:
+    """The trip this order is a detail of: the customer's named ACTIVE trip, widened to cover the new dates,
+    or a new trip."""
+    import asyncpg
+
+    first, last = _span(new.items)
+    if new.trip_code is not None:
+        trip_id = await conn.fetchval(
+            """
+            UPDATE o_trip SET starts_on = least(starts_on, $3), ends_on = greatest(ends_on, $4),
+                version = version + 1, updated_by = $5
+            WHERE trip_code = $1 AND customer_id = $2 AND status = 'ACTIVE' RETURNING id
+            """,
+            new.trip_code, customer_id, first, last, actor)
+        if trip_id is None:
+            raise OrderError("no_trip", "This customer has no active trip with that code.")
+        return trip_id
+    title = " ".join((new.trip_title or new.items[0].title).split())[:200]
+    for _ in range(_CODE_ATTEMPTS):
+        try:
+            async with conn.transaction():  # a savepoint: a code collision must not end the caller's transaction
+                return await conn.fetchval(
+                    """
+                    INSERT INTO o_trip (trip_code, customer_id, title, starts_on, ends_on, created_by, updated_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id
+                    """,
+                    new_trip_code(), customer_id, title, first, last, actor)
+        except asyncpg.UniqueViolationError as exc:
+            if exc.constraint_name != "o_trip_uk_code":
+                raise
+    raise OrderError("code_exhausted", "Could not allocate a trip code.")
+
+
 async def _insert_booking(
-    conn: Any, new: NewBooking, total: Decimal, key: str | None, fingerprint: str | None, actor: str,
+    conn: Any, new: NewBooking, total: Decimal, key: str | None, fingerprint: str | None, customer_id: int,
+    trip_id: int, actor: str,
 ) -> int | None:
     import asyncpg
 
@@ -295,31 +492,40 @@ async def _insert_booking(
                     """
                     INSERT INTO o_booking (booking_code, buyer_channel, buyer_ref, chat_ref, contact_name,
                         contact_email, contact_phone, locale_code, currency, total_amount, idempotency_key,
-                        request_sha256, created_by, updated_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+                        request_sha256, order_mode, customer_id, trip_id, created_by, updated_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
                     ON CONFLICT ON CONSTRAINT o_booking_uk_idem DO NOTHING
                     RETURNING id
                     """,
                     new_booking_code(), new.buyer.channel, new.buyer.ref, new.buyer.chat_ref, new.contact.name,
                     new.contact.email, new.contact.phone, new.locale, new.currency, total, key, fingerprint,
-                    actor)
+                    new.mode, customer_id, trip_id, actor)
         except asyncpg.UniqueViolationError as exc:
             if exc.constraint_name != "o_booking_uk_code":
                 raise
     raise OrderError("code_exhausted", "Could not allocate a booking code.")
 
 
-async def _insert_item(conn: Any, booking_id: int, seq: int, currency: str, item: NewItem, actor: str) -> None:
+def _source_columns(conversion: FxConversion | None) -> tuple[str | None, Decimal | None]:
+    if conversion is None:
+        return None, None
+    return conversion.source_currency, conversion.source_amount
+
+
+async def _insert_item(
+    conn: Any, booking_id: int, seq: int, currency: str, item: NewItem, rate_id: int | None, actor: str,
+) -> None:
     detail = item.detail
+    conversion = item.conversion
     item_id = await conn.fetchval(
         """
         INSERT INTO o_booking_item (booking_id, item_seq, item_kind, source_code, title_snapshot, quantity,
-            currency, sell_amount, created_by, updated_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            currency, sell_amount, source_currency, source_amount, fx_rate_id, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
         RETURNING id
         """,
         booking_id, seq, _KIND_OF[type(detail)], item.source, item.title, item.quantity, currency,
-        item.sell_amount, actor)
+        item.sell_amount, *_source_columns(conversion), rate_id, actor)
     if isinstance(detail, HotelStay):
         await conn.execute(
             """
@@ -393,19 +599,28 @@ async def get_booking(conn: Any, code: str, *, buyer: Buyer) -> Booking | None:
                 "SELECT * FROM o_booking_item_flight_segment WHERE item_id = $1 ORDER BY segment_seq", item["id"])]
         travellers = await conn.fetch(
             "SELECT * FROM o_booking_item_traveller WHERE item_id = $1 ORDER BY traveller_seq", item["id"])
+        conversion = None
+        if item["fx_rate_id"] is not None:
+            rate = await conn.fetchrow(
+                "SELECT rate, as_of, provider_code FROM c_fx_rate WHERE id = $1", item["fx_rate_id"])
+            conversion = FxConversion(
+                item["source_amount"], item["source_currency"], rate["rate"], rate["as_of"], rate["provider_code"])
         items.append(Item(
             id=item["id"], seq=item["item_seq"], kind=item["item_kind"], source=item["source_code"],
             title=item["title_snapshot"], quantity=item["quantity"], sell_amount=item["sell_amount"],
             booking_status=item["booking_status"], fulfilment_status=item["fulfilment_status"],
             supplier_order_no=item["supplier_order_no"], supplier_ref=item["supplier_ref"],
             supplier_confirm_no=item["supplier_confirm_no"], pay_by_at=item["pay_by_at"], version=item["version"],
-            detail=detail, travellers=tuple(dict(t) for t in travellers)))
+            detail=detail, travellers=tuple(dict(t) for t in travellers), conversion=conversion))
+    trip = await conn.fetchrow(
+        "SELECT trip_code, title, starts_on, ends_on, status FROM o_trip WHERE id = $1", row["trip_id"])
     return Booking(
         id=row["id"], code=row["booking_code"],
         buyer=Buyer(row["buyer_channel"], row["buyer_ref"], row["chat_ref"]),
         contact=Contact(row["contact_name"], row["contact_email"], row["contact_phone"]),
         locale=row["locale_code"], currency=row["currency"], status=row["status"],
-        total_amount=row["total_amount"], version=row["version"], created_at=row["created_dt"], items=tuple(items))
+        total_amount=row["total_amount"], version=row["version"], created_at=row["created_dt"],
+        order_mode=row["order_mode"], items=tuple(items), trip=Trip(*trip))
 
 
 async def list_bookings(conn: Any, buyer: Buyer, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -417,6 +632,88 @@ async def list_bookings(conn: Any, buyer: Buyer, *, limit: int = 20) -> list[dic
         """,
         buyer.channel, buyer.ref, max(1, min(limit, 100)))
     return [dict(row) for row in rows]
+
+
+_TRIP_ROWS = """
+    SELECT t.trip_code, t.title, t.starts_on, t.ends_on, t.status AS trip_status, t.created_dt AS trip_created_dt,
+           b.booking_code, b.status, b.currency, b.total_amount, b.created_dt,
+           (SELECT string_agg(i.item_kind, ',' ORDER BY i.item_seq) FROM o_booking_item i
+             WHERE i.booking_id = b.id) AS item_kinds,
+           (SELECT string_agg(i.title_snapshot, ' + ' ORDER BY i.item_seq) FROM o_booking_item i
+             WHERE i.booking_id = b.id) AS summary
+    FROM o_trip t JOIN o_booking b ON b.trip_id = t.id
+"""
+
+
+def _group_trips(rows: list[Any]) -> list[dict[str, Any]]:
+    """Master-detail: each trip once, with its bookings in the order they were placed."""
+    trips: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        trip = trips.setdefault(row["trip_code"], {
+            "trip_code": row["trip_code"], "title": row["title"], "starts_on": row["starts_on"],
+            "ends_on": row["ends_on"], "status": row["trip_status"], "bookings": []})
+        trip["bookings"].append({
+            "booking_code": row["booking_code"], "status": row["status"], "currency": row["currency"],
+            "total_amount": row["total_amount"], "created_dt": row["created_dt"],
+            "kinds": row["item_kinds"].split(","), "summary": row["summary"]})
+    return list(trips.values())
+
+
+async def list_trips(conn: Any, buyer: Buyer, *, limit: int = 10) -> list[dict[str, Any]]:
+    """The buyer's trips, newest first, each with its bookings: the master-detail view of what they ordered."""
+    rows = await conn.fetch(
+        _TRIP_ROWS + """
+        WHERE b.buyer_channel = $1 AND b.buyer_ref = $2 AND t.id IN (
+            SELECT trip_id FROM o_booking WHERE buyer_channel = $1 AND buyer_ref = $2
+            GROUP BY trip_id ORDER BY max(created_dt) DESC LIMIT $3)
+        ORDER BY t.created_dt DESC, t.id DESC, b.created_dt, b.id
+        """,
+        buyer.channel, buyer.ref, max(1, min(limit, 50)))
+    return _group_trips(rows)
+
+
+async def find_customers(
+    conn: Any, *, telegram_user_id: str | None = None, email: str | None = None,
+) -> list[dict[str, Any]]:
+    """Customers by Telegram account id or by email (case-insensitive), each with their trips and bookings.
+
+    For operators only. Never reachable from a chat: an email typed by a stranger must not open someone's orders.
+    """
+    customers = await conn.fetch(
+        """
+        SELECT id, telegram_user_id, email, display_name, phone, created_dt FROM o_customer
+        WHERE erased_at IS NULL AND (($1::text IS NOT NULL AND telegram_user_id = $1)
+                                     OR ($2::text IS NOT NULL AND lower(email) = lower($2)))
+        ORDER BY id
+        """,
+        telegram_user_id, email)
+    found = []
+    for customer in customers:
+        rows = await conn.fetch(
+            _TRIP_ROWS + "WHERE t.customer_id = $1 ORDER BY t.created_dt DESC, t.id DESC, b.created_dt, b.id",
+            customer["id"])
+        found.append({**dict(customer), "trips": _group_trips(rows)})
+    return found
+
+
+async def erase_customer(conn: Any, customer_id: int, *, actor: str) -> None:
+    """Erase a person: their customer record, every booking of theirs and the names of their trips.
+
+    The orders, amounts and history stay, linked to a customer row that no longer says who it was.
+    """
+    for booking_id in [row["id"] for row in await conn.fetch(
+            "SELECT id FROM o_booking WHERE customer_id = $1 AND erased_at IS NULL", customer_id)]:
+        await _erase_booking(conn, booking_id, actor)
+    await conn.execute(
+        "UPDATE o_trip SET title = 'Trip', version = version + 1, updated_by = $1 WHERE customer_id = $2",
+        actor, customer_id)
+    await conn.execute(
+        """
+        UPDATE o_customer SET telegram_user_id = NULL, email = NULL, display_name = NULL, phone = NULL,
+            locale_code = NULL, erased_at = clock_timestamp(), version = version + 1, updated_by = $1
+        WHERE id = $2 AND erased_at IS NULL
+        """,
+        actor, customer_id)
 
 
 async def move_booking(conn: Any, booking: Booking, to: str, *, actor: str) -> int:
@@ -464,6 +761,42 @@ async def move_item(
     if fulfilment_status:
         await _log(conn, booking.id, item.id, "ITEM_FULFILMENT", item.fulfilment_status, fulfilment_status, actor)
     return version
+
+
+async def confirm_simulated(conn: Any, booking: Booking, *, actor: str) -> Booking:
+    """Confirm a freshly created simulated order: every item is CONFIRMED with no supplier order, and the booking is
+    CONFIRMED. Call it in the transaction that created the booking, so nobody sees it half-confirmed. No supplier
+    request is written, which is what makes the order a simulation."""
+    if booking.order_mode != "SIMULATED":
+        raise OrderError("bad_mode", "Only a simulated order is confirmed without a supplier.")
+    if booking.status != "DRAFT":
+        raise OrderError("bad_move", f"A {booking.status} booking is not a new order.")
+    for item in booking.items:
+        await move_item(conn, booking, item, booking_status="CONFIRMED", fulfilment_status="NOT_APPLICABLE",
+                        actor=actor)
+    await move_booking(conn, booking, "CONFIRMED", actor=actor)
+    return await get_booking(conn, booking.code, buyer=booking.buyer)
+
+
+async def cancel_booking(conn: Any, booking: Booking, *, actor: str) -> Booking:
+    """Cancel a confirmed booking whose items no supplier holds an order for. Refused (``supplier_order_live``)
+    while a supplier does, since cancelling that order is a supplier call this store does not make."""
+    if any(item.fulfilment_status not in _NO_SUPPLIER_ORDER for item in booking.items):
+        raise OrderError("supplier_order_live", "A supplier holds an order for this booking.")
+    if booking.status != "CONFIRMED":
+        raise OrderError("bad_move", f"A {booking.status} booking cannot be cancelled.")
+    for item in booking.items:
+        await move_item(conn, booking, item, booking_status="CANCELLED", actor=actor)
+    await move_booking(conn, booking, "CANCELLED", actor=actor)
+    # A trip with no order left is over: it is shown as cancelled and takes no further order.
+    await conn.execute(
+        """
+        UPDATE o_trip SET status = 'CANCELLED', version = version + 1, updated_by = $1
+        WHERE id = (SELECT trip_id FROM o_booking WHERE id = $2) AND status = 'ACTIVE'
+          AND NOT EXISTS (SELECT 1 FROM o_booking b WHERE b.trip_id = o_trip.id AND b.status <> 'CANCELLED')
+        """,
+        actor, booking.id)
+    return await get_booking(conn, booking.code, buyer=booking.buyer)
 
 
 async def open_supplier_request(
@@ -561,8 +894,13 @@ async def erase_personal_data(conn: Any, booking: Booking, *, actor: str) -> Non
     """Erase who bought and who travels, in place and for good; the order itself is kept.
 
     The buyer's account id becomes ``erased:<booking code>``, so the buyer can no longer look the
-    booking up, and its request key is forgotten. Doing it twice changes nothing.
+    booking up, and its request key is forgotten. Doing it twice changes nothing. The customer master
+    still knows the person: ``erase_customer`` erases a person everywhere.
     """
+    await _erase_booking(conn, booking.id, actor)
+
+
+async def _erase_booking(conn: Any, booking_id: int, actor: str) -> None:
     erased = await conn.fetchval(
         """
         UPDATE o_booking SET contact_name = NULL, contact_email = NULL, contact_phone = NULL, chat_ref = NULL,
@@ -570,7 +908,7 @@ async def erase_personal_data(conn: Any, booking: Booking, *, actor: str) -> Non
             erased_at = clock_timestamp(), version = version + 1, updated_by = $1
         WHERE id = $2 AND erased_at IS NULL RETURNING id
         """,
-        actor, booking.id)
+        actor, booking_id)
     if erased is None:
         return
     await conn.execute(
@@ -580,5 +918,5 @@ async def erase_personal_data(conn: Any, booking: Booking, *, actor: str) -> Non
             version = version + 1, updated_by = $1
         WHERE erased_at IS NULL AND item_id IN (SELECT id FROM o_booking_item WHERE booking_id = $2)
         """,
-        actor, booking.id)
-    await _log(conn, booking.id, None, "ERASED", None, None, actor)
+        actor, booking_id)
+    await _log(conn, booking_id, None, "ERASED", None, None, actor)

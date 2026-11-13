@@ -10,10 +10,11 @@ import copy
 import datetime as dt
 import json
 import pathlib
+from decimal import Decimal
 
 import pytest
 
-from plugins.accomy_travel import _common, seatunique_client, tools_events
+from plugins.accomy_travel import _common, fx, quotes, seatunique_client, tools_events
 from plugins.accomy_travel.tools_events import get_event_tickets, search_events
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
@@ -50,6 +51,13 @@ def _isolated(monkeypatch):
     monkeypatch.setattr(_common, "_limiter", _common.RateLimiter())
     monkeypatch.setattr(seatunique_client, "_cache", {})
     monkeypatch.setattr(_common, "secret", lambda name: "test-token")
+    monkeypatch.setattr(_common, "caller_id", lambda: "user-a")
+    quotes._quotes.clear()
+
+
+def _usd(amount: str, currency: str = "GBP") -> dict:
+    """What a tool shows for a supplier amount: USD, marked approximate when converted."""
+    return fx.display(Decimal(amount), currency)
 
 
 def _install(monkeypatch, routes: dict) -> FakeSeatUnique:
@@ -436,7 +444,8 @@ def test_tickets_are_sorted_by_price_with_exact_money_and_sold_out_counted(monke
     assert "error" not in result
     prices = [listing["price"] for listing in result["listings"]]
     assert prices == sorted(prices, key=lambda price: float(price["amount"]))
-    assert result["listings"][0]["price"] == {"amount": "238.80", "currency": "GBP"}
+    assert result["listings"][0]["price"] == _usd("238.80")
+    assert result["listings"][0]["price"]["approximate"] is True
     assert result["sold_out_listings"] == 1
     assert result["listings_total"] == len(listings) + 1
     assert fake.paths() == [f"/v1/events/{EVENT_ID}", f"/v1/events/{EVENT_ID}/listings"]
@@ -461,7 +470,7 @@ def test_only_the_cheapest_listings_are_shown_and_the_hint_says_so(monkeypatch):
     result = _result(get_event_tickets({"event_id": EVENT_ID}))
 
     assert len(result["listings"]) == tools_events.MAX_LISTINGS
-    assert result["listings"][0]["price"]["amount"] == "1.00"
+    assert result["listings"][0]["price"] == _usd("1.00")
     assert any("cheapest" in hint for hint in result["hints"])
 
 
@@ -471,7 +480,7 @@ def test_quantity_reports_total_for_a_purchasable_any_listing(monkeypatch):
 
     view = _result(get_event_tickets({"event_id": EVENT_ID, "quantity": 2}))["listings"][0]["for_quantity"]
 
-    assert view == {"quantity": 2, "purchasable": True, "total": {"amount": "477.60", "currency": "GBP"}}
+    assert view == {"quantity": 2, "purchasable": True, "total": _usd("477.60")}
 
 
 @pytest.mark.parametrize(
@@ -532,7 +541,7 @@ def test_money_uses_the_currency_minor_unit_exponent(monkeypatch, currency, pric
 
     shown = _result(get_event_tickets({"event_id": EVENT_ID}))["listings"][0]
 
-    assert shown["price"] == {"amount": expected, "currency": currency}
+    assert shown["price"] == _usd(expected, currency)
 
 
 def test_listing_type_and_delivery_are_plain_words(monkeypatch):
@@ -573,13 +582,51 @@ def test_unknown_event_is_a_not_found_error(monkeypatch):
     assert "search_events" in result["error"]
 
 
-def test_result_says_purchasing_is_unavailable(monkeypatch):
+def test_result_says_prices_are_usd_and_orders_are_demonstrations(monkeypatch):
     _install(monkeypatch, _event_routes([_listing()]))
 
     result = _result(get_event_tickets({"event_id": EVENT_ID}))
 
-    assert "Purchasing is not available" in result["notice"]
+    assert "US dollars" in result["notice"]
+    assert "demonstration orders" in result["notice"]
     assert "note" in result
+
+
+def test_a_listing_is_remembered_with_the_event_facts_and_the_quantities_it_allows(monkeypatch):
+    _install(monkeypatch, _event_routes([_listing(price=2380, available_qty=6)]))
+
+    listing = _result(get_event_tickets({"event_id": EVENT_ID}))["listings"][0]
+
+    quote = quotes._quotes[listing["quote_id"]]
+    assert quote.kind == quotes.EVENT_TICKET
+    assert quote.owner[1] == "user-a"
+    facts = quote.facts
+    assert facts.event_id == EVENT_ID
+    assert facts.listing_id == "11111111-1111-4111-8111-111111111111"
+    assert facts.unit_amount == Decimal("23.80")
+    assert facts.currency == "GBP"
+    assert facts.allowed == tuple(range(1, 7))
+    assert facts.starts_local is not None and facts.starts_local.tzinfo is None
+    assert facts.tz_name.startswith("UTC")
+
+
+def test_a_listing_in_a_currency_without_a_rate_is_unconverted_and_has_no_quote(monkeypatch):
+    _install(monkeypatch, _event_routes([_listing(currency="XYZ", price=1000)]))
+
+    listing = _result(get_event_tickets({"event_id": EVENT_ID}))["listings"][0]
+
+    assert listing["price"] == {"amount": "10.00", "currency": "XYZ", "unconverted": True}
+    assert "quote_id" not in listing
+    assert quotes._quotes == {}
+
+
+def test_a_sold_out_listing_has_no_quote(monkeypatch):
+    _install(monkeypatch, _event_routes([_listing(available_qty=0, price=1000)]))
+
+    result = _result(get_event_tickets({"event_id": EVENT_ID}))
+
+    assert result["listings"] == []
+    assert quotes._quotes == {}
 
 
 # ---- safety and gating ----------------------------------------------------------------------------------

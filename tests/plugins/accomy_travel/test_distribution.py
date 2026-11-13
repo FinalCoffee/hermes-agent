@@ -26,7 +26,9 @@ SECRETS = (
     "SEATUNIQUE_API_TOKEN",
     "GOOGLE_MAPS_SERVER_API_KEY",
     "BRAVE_SEARCH_API_KEY",
+    "ACCOMY_DATABASE_URL",
 )
+ORDER_TOOLS = {"place_order", "list_trips", "get_order", "cancel_order"}
 REQUIRED_ENV_NAMES = {
     "OPENAI_API_KEY",
     "TMC_APP_KEY",
@@ -107,10 +109,20 @@ def _slash_policy(chat_type: str):
     return policy_for_source(gateway, source)
 
 
-def test_telegram_surface_is_exactly_the_travel_tools(dist_home):
+def test_telegram_surface_is_exactly_the_travel_and_order_tools(dist_home):
     names = _resolved_telegram_tool_names()
     assert names == _manifest_tools()
+    assert ORDER_TOOLS <= names
     assert not names & FORBIDDEN_TOOLS
+
+
+def test_without_the_order_database_the_twelve_travel_tools_are_the_surface(dist_home, monkeypatch):
+    monkeypatch.delenv("ACCOMY_DATABASE_URL")
+
+    names = _resolved_telegram_tool_names()
+
+    assert len(names) == 12
+    assert not names & ORDER_TOOLS
 
 
 def test_cli_surface_matches_telegram(dist_home):

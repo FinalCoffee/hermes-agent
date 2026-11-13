@@ -127,14 +127,20 @@ served on the API's own `execute-api` address instead. Remove everything with
 
 ## Deploying to AWS EC2
 
-Not yet run on a real instance. The commands were checked against the AWS and Docker documentation and the
-flags against the AWS CLI offline; the Compose plugin install was exercised in an Amazon Linux 2023 arm64
-container. Nothing else in `ec2-bootstrap.sh` (ECR, Parameter Store, systemd, Compose v5 against the AMI's
-Docker engine) has run.
+This path has run once on a real instance: Amazon Linux 2023 arm64 on a `t4g.large` in a private subnet behind
+a NAT gateway, with Docker 25.0 and Compose 5.7.1. The bot was connected to Telegram about two and a half
+minutes after launch. Changing a secret, as described under "Operating the instance", has also run once.
+Running the bootstrap a second time, for a new build, has not been exercised, and neither have the two lines
+added to it since that record the secrets parameter and the open setting in `/opt/accomy/.env`.
 
 The instance needs no inbound access at all: use Session Manager instead of SSH. Put it in a private subnet
-whose route to the internet is a NAT gateway, with no public address, in the VPC of the order database so the
-database's security group can admit it. Keep the instance metadata service at hop limit 1.
+whose route to the internet is a NAT gateway, with no public address, in the VPC of the order database. The
+database's security group has to admit the instance on port 5432; a group that admits the whole VPC range
+already does. Keep the instance metadata service at hop limit 1.
+
+**One poller per bot token.** The bootstrap starts the bot as soon as the instance boots. Stop every other
+stack that uses the same Telegram token before step 5 (`docker compose stop` in this directory), and leave it
+stopped.
 
 On your machine you need the AWS CLI, Docker and the
 [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
@@ -152,24 +158,25 @@ IMAGE=$REPO:poc-$(git rev-parse --short HEAD)
 
 # 1. Image: private registry. A Mac builds arm64, which matches Graviton (t4g) instances.
 #    Commit first: the tag names a commit, and build-image.sh also packs uncommitted changes.
-aws ecr create-repository --repository-name accomy-hermes
+aws ecr create-repository --repository-name accomy-hermes --image-tag-mutability IMMUTABLE
 aws ecr get-login-password | docker login --username AWS --password-stdin ${REPO%%/*}
 ACCOMY_IMAGE=$IMAGE deploy/accomy/build-image.sh
 docker push $IMAGE
 
-# 2. Secrets: the profile's .env as one encrypted parameter (4 KB at most).
+# 2. Secrets: the profile's .env as one encrypted parameter (4 KB at most; check with wc -c).
 aws ssm put-parameter --name /accomy/bot/env --type SecureString \
     --value file://$HOME/path/to/profile/.env
 
-# 3. Instance role: Session Manager, pull from ECR, read that one parameter.
+# 3. Instance role: Session Manager, pull this one image, read that one parameter.
+#    The braces matter: zsh reads $ACCOUNT:parameter and $ACCOUNT:repository as a modifier on the variable.
 aws iam create-role --role-name accomy-bot-ec2 --assume-role-policy-document \
     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 aws iam attach-role-policy --role-name accomy-bot-ec2 \
     --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-aws iam attach-role-policy --role-name accomy-bot-ec2 \
-    --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+aws iam put-role-policy --role-name accomy-bot-ec2 --policy-name pull-bot-image --policy-document \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],\"Resource\":\"arn:aws:ecr:${AWS_REGION}:${ACCOUNT}:repository/accomy-hermes\"}]}"
 aws iam put-role-policy --role-name accomy-bot-ec2 --policy-name read-bot-secrets --policy-document \
-    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"ssm:GetParameter\",\"Resource\":\"arn:aws:ssm:$AWS_REGION:$ACCOUNT:parameter/accomy/bot/env\"}]}"
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"ssm:GetParameter\",\"Resource\":\"arn:aws:ssm:${AWS_REGION}:${ACCOUNT}:parameter/accomy/bot/env\"}]}"
 aws iam create-instance-profile --instance-profile-name accomy-bot-ec2
 aws iam add-role-to-instance-profile --instance-profile-name accomy-bot-ec2 --role-name accomy-bot-ec2
 sleep 15    # a new instance profile takes a moment to reach EC2
@@ -179,46 +186,158 @@ SG=$(aws ec2 create-security-group --group-name accomy-bot --description "Accomy
     --vpc-id $VPC --query GroupId --output text)
 
 # 5. Launch. User data is ec2-bootstrap.sh with its settings in front; it holds no secret.
+#    ACCOMY_OPEN=1 opens the bot to every Telegram account: delete it from the line to keep the allowlist.
 { printf '#!/bin/sh\nexport ACCOMY_IMAGE=%s ACCOMY_SECRETS_PARAM=/accomy/bot/env ACCOMY_OPEN=1 ACCOMY_DB_HOST=%s\n' \
       "$IMAGE" "$DB_HOST"
   cat deploy/accomy/ec2-bootstrap.sh; } > accomy-user-data.sh
 AMI=$(aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
     --query Parameter.Value --output text)
 ROOT=$(aws ec2 describe-images --image-ids $AMI --query 'Images[0].RootDeviceName' --output text)
-aws ec2 run-instances --image-id $AMI --instance-type t4g.small --subnet-id $SUBNET \
+aws ec2 run-instances --image-id $AMI --instance-type t4g.large --subnet-id $SUBNET \
     --no-associate-public-ip-address --iam-instance-profile Name=accomy-bot-ec2 --security-group-ids $SG \
     --metadata-options HttpTokens=required,HttpPutResponseHopLimit=1,HttpEndpoint=enabled \
-    --block-device-mappings "DeviceName=$ROOT,Ebs={VolumeSize=30,VolumeType=gp3,Encrypted=true}" \
-    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=accomy-bot}]' \
+    --block-device-mappings "DeviceName=$ROOT,Ebs={VolumeSize=100,VolumeType=gp3,Encrypted=true}" \
+    --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=dev-accomy-bot}]' \
     --user-data fileb://accomy-user-data.sh
 ```
 
-Leave out `ACCOMY_OPEN=1` to keep the bot to `TELEGRAM_ALLOWED_USERS`. If `run-instances` answers
-`Invalid IAM Instance Profile name`, wait and run it again.
+If `run-instances` answers `Invalid IAM Instance Profile name`, wait and run it again.
 
-A `t4g.small` (2 vCPU, 2 GB) should be enough for a demo: the idle bot uses about 230 MB, the proxy about
-20 MB and the relay under 5 MB, and the bot is capped at 1 GB. That sizing has not been measured under real
-traffic. The image is 3.2 GB, hence the 30 GB disk.
+**Sizing.** The command above is the instance that ran: a `t4g.large` (2 vCPU, 8 GB) with a 100 GB disk, sized
+for about twenty people at once. The bot container has limits of its own, 1 GB of memory and 1.5 CPUs whatever
+the instance has: add `ACCOMY_MEM_LIMIT=2048m` (and `ACCOMY_CPUS`, if wanted) to the export line to raise them,
+as that run did. Measured on the bot: idle it uses about 230 MB, the proxy about 20 MB and the relay under
+5 MB; each further conversation held in memory costs about 0.1 MB; one flight search peaks at about 12 MB
+and a fifth of a CPU second. A `t4g.small` (2 vCPU, 2 GB) with a 30 GB disk should do for a demo with a few
+users, since the image is 3.2 GB, but it has not been run, and neither has a load of twenty people.
 
-Afterwards:
+**Logs rotate.** Each container's log is capped at three files of 10 MB, the bootstrap gives the Docker daemon
+the same default and caps the system journal at 500 MB, and the bot rotates its main log files in the data
+volume at 5 MB each.
+
+### What the launch leaves behind
+
+| Where | What |
+|---|---|
+| ECR repository `accomy-hermes` | The bot image, one immutable tag per commit: `poc-<commit>` |
+| Parameter Store, `/accomy/bot/env` | The profile's `.env`, encrypted. The only copy of the secrets outside the instance |
+| IAM role and instance profile `accomy-bot-ec2` | Session Manager, pulling that one image, reading that one parameter |
+| Security group `accomy-bot` | No inbound rule. Outbound is open: the proxy in the Compose file is what limits the bot |
+| The instance, Name tag `dev-accomy-bot` | Docker, the Compose plugin, and the stack below |
+| `/opt/accomy` on the instance | This directory as the image carried it, plus `config.yaml`, `SOUL.md` and `locales/` |
+| `/opt/accomy/.env` on the instance | The Compose settings of this host: the image, the database host, the limits. No secret |
+| Docker volume `accomy_data` | The bot's home: the secrets file, the conversations, its logs |
+
+The Compose project is called `accomy`, so the containers are `accomy-bot-1` and `accomy-egress-1`, and
+`accomy-db-1` when the order store is set up. They restart with the instance.
+
+### Operating the instance
+
+`ec2-run.sh` runs one command as root on the instance through Systems Manager and prints its output. It finds
+the instance by its Name tag (`dev-accomy-bot`; another name goes in `ACCOMY_INSTANCE_NAME`). Set `AWS_PROFILE`
+and `AWS_REGION` first. AWS keeps the text and the output of every command: never put a secret in one, and
+never run one that prints a secret or a customer's details (`hermes accomy-orders customer` prints names and
+contacts).
 
 ```sh
-aws ssm start-session --target <instance-id>
-sudo tail -f /var/log/cloud-init-output.log            # the bootstrap's progress
-cd /opt/accomy && sudo docker compose logs -f bot
-sudo docker compose exec -u hermes bot hermes accomy-orders migrate --commit   # once, for the order store
+run=deploy/accomy/ec2-run.sh
+
+# Is it up, and is it connected? A healthy start logs "Connected to Telegram (polling mode)" once.
+$run 'cd /opt/accomy && docker compose ps'
+$run 'cd /opt/accomy && docker compose logs bot | grep -E "Connected to Telegram|Conflict|ERROR" | tail -n 5'
+
+# What is it doing?
+$run 'cd /opt/accomy && docker compose logs --since 15m bot | tail -n 80'
+$run 'docker stats --no-stream; df -h /'
+$run 'cd /opt/accomy && docker compose exec -T -u hermes bot hermes accomy-orders status'
+
+# Restart the bot only. The proxy and the relay keep running.
+$run 'cd /opt/accomy && docker compose restart bot'
 ```
 
-To ship a new build, push a new tag and run `ec2-bootstrap.sh` again on the instance with the new
-`ACCOMY_IMAGE` (it is at `/opt/accomy/ec2-bootstrap.sh`). It pulls the image, refreshes `/opt/accomy` from
-it, reseeds the secrets and recreates the containers. The data volume is kept.
+`watch.sh` follows the conversations and needs a terminal, so open a session for it:
+`aws ssm start-session --target <instance id>`, then `cd /opt/accomy && sudo sh watch.sh`.
+
+**When the bot does not answer.** Look, in this order, before changing anything:
+
+| What you see | What it means | What to do |
+|---|---|---|
+| `docker compose ps` shows `bot` restarting or absent | The bot crashes at start | Read `docker compose logs --tail 80 bot` for the reason |
+| The log has `Conflict` after `Connected to Telegram` | Another process polls the same token | Find and stop the other one. Restarting this one does not help |
+| The log has no `Connected to Telegram` since the last start | It cannot reach Telegram | Check the `egress` container and its log for refused hosts |
+| The bot answers but a search fails as "busy" or "too long" | A supplier limit or a slow supplier | Read the bot log around the time; see "Limits" in the plugin README |
+| Orders fail, searches work | The order database is unreachable | Run the `accomy-orders status` command above |
+
+**Shipping a new build.** Commit first, because the tag names the commit and the registry refuses to overwrite
+a tag. Build and push, then run the bootstrap of your checkout on the instance:
+
+```sh
+REPO=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com/accomy-hermes
+IMAGE=$REPO:poc-$(git rev-parse --short HEAD)
+aws ecr get-login-password | docker login --username AWS --password-stdin ${REPO%%/*}
+ACCOMY_IMAGE=$IMAGE deploy/accomy/build-image.sh && docker push $IMAGE
+
+$run "echo $(base64 < deploy/accomy/ec2-bootstrap.sh | tr -d '\n') | base64 -d > /root/ec2-bootstrap.sh"
+$run ". /opt/accomy/.env && ACCOMY_IMAGE=$IMAGE ACCOMY_SECRETS_PARAM=\$ACCOMY_SECRETS_PARAM \
+    ACCOMY_OPEN=\$ACCOMY_OPEN ACCOMY_DB_HOST=\$ACCOMY_DB_HOST ACCOMY_MEM_LIMIT=\$ACCOMY_MEM_LIMIT \
+    ACCOMY_CPUS=\$ACCOMY_CPUS sh /root/ec2-bootstrap.sh" 900
+```
+
+The first `$run` carries the script over, since the copy in `/opt/accomy` belongs to the build that is
+running. The second repeats the last run's settings, which the bootstrap keeps in `/opt/accomy/.env`, with the
+new image: whether the bot is open to everyone, the database host and the limits stay as they were. To change
+one of them, give it a value in place of the `\$` variable. The bootstrap pulls the image, refreshes
+`/opt/accomy` from it, reseeds the secrets and recreates the containers. The data volume is kept, so
+conversations survive; the limits and the quotes the bot holds in memory do not. This second run has not been
+exercised yet. Carrying the script over and reading the host's settings have.
+
+**Changing a secret.** A change to the parameter alone does nothing: the bot reads its secrets from the volume.
+Edit the profile's `.env`, store it again, then seed it into the volume and restart the bot. The seeding step
+prints a one-line confirmation and no value:
+
+```sh
+aws ssm put-parameter --name /accomy/bot/env --type SecureString --overwrite \
+    --value file://$HOME/path/to/profile/.env
+$run ". /opt/accomy/.env && cd /opt/accomy && aws ssm get-parameter --region $AWS_REGION \
+    --name \$ACCOMY_SECRETS_PARAM --with-decryption --query Parameter.Value --output text \
+    | sh ./seed-secrets.sh \${ACCOMY_OPEN:+--open} - && docker compose restart bot"
+```
+
+Then check that the bot connected again, with the first commands of this section.
+
+**Trying something in a real conversation.** Do not start a second copy of this bot. Make another bot with
+BotFather, put its token in a throwaway `.env`, and run the stack on your machine under another project name
+(`COMPOSE_PROJECT_NAME=accomy-test`).
+
+**Stopping and removing.** `aws ec2 stop-instances` stops the bot and keeps the disk; the bot starts again with
+the instance. Removing everything loses the conversations, which live only in the instance's volume:
+
+```sh
+aws ec2 terminate-instances --instance-ids <instance id>      # its disk goes with it
+aws ec2 wait instance-terminated --instance-ids <instance id>
+aws ec2 delete-security-group --group-name accomy-bot          # add --group-id outside the default VPC
+aws iam remove-role-from-instance-profile --instance-profile-name accomy-bot-ec2 --role-name accomy-bot-ec2
+aws iam delete-instance-profile --instance-profile-name accomy-bot-ec2
+aws iam delete-role-policy --role-name accomy-bot-ec2 --policy-name pull-bot-image
+aws iam delete-role-policy --role-name accomy-bot-ec2 --policy-name read-bot-secrets
+aws iam detach-role-policy --role-name accomy-bot-ec2 \
+    --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+aws iam delete-role --role-name accomy-bot-ec2
+aws ssm delete-parameter --name /accomy/bot/env
+aws ecr delete-repository --repository-name accomy-hermes --force
+```
+
+The demo payment page is a separate stack, removed as its own section says.
+
+**Running the bot somewhere else instead.** Stop it here first (`docker compose stop` through `ec2-run.sh`, or
+stop the instance). One process polls a Telegram token.
 
 ## What this does not cover
 
 - No budget in tokens or money. Set a spend cap on the model key at the provider.
 - The turn and supplier limits are counted in the bot's memory. A restart resets them.
-- Disk. The data volume and the bot's own log files have no size limit, so a compromised bot could fill the
-  disk it shares with Docker: the Docker Desktop disk on a Mac, the instance's root disk on EC2.
+- Disk. The data volume has no size quota. The bot's log files rotate in normal use, but a compromised bot
+  could fill the disk it shares with Docker: the Docker Desktop disk on a Mac, the instance's root disk on EC2.
 - Code that already runs as the bot user can change what the volume holds: the `.env`, the conversations, the
   bundled skills. That stays inside the container and its allowed hosts.
 - The allowed hosts are trusted with whatever the bot sends them.

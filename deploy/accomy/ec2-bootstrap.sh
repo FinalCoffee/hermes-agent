@@ -13,6 +13,10 @@
 # TELEGRAM_ALLOWED_USERS.
 # ACCOMY_DB_HOST is the order database's host name, the one in ACCOMY_DATABASE_URL. It starts the
 # relay that is the bot's only route to it. Leave it unset to run without the order store.
+# ACCOMY_MEM_LIMIT and ACCOMY_CPUS, when set, replace the bot container's limits (1024m and 1.5).
+#
+# Every run writes the host's settings afresh, so a later run needs the same variables as the first. The
+# last run's are kept in /opt/accomy/.env, where the next run can read them back.
 set -eu
 
 : "${ACCOMY_IMAGE:?set ACCOMY_IMAGE to the ECR image URI}"
@@ -31,6 +35,15 @@ case "$(uname -m)" in
 esac
 
 dnf install -y docker
+# Logs rotate. A container the Compose file does not describe gets the same cap as the ones it does, and the
+# journal, which also holds the Docker daemon's own log, keeps at most 500 MB.
+if [ ! -e /etc/docker/daemon.json ]; then
+    mkdir -p /etc/docker
+    printf '{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}\n' > /etc/docker/daemon.json
+fi
+mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=500M\n' > /etc/systemd/journald.conf.d/accomy.conf
+systemctl restart systemd-journald
 systemctl enable --now docker
 
 plugins=/usr/local/lib/docker/cli-plugins
@@ -57,22 +70,28 @@ docker rm "$cid" > /dev/null
 chown -R root:root "$home"
 chmod -R go-w "$home"
 
-# Compose variables for this host. Not secrets: those live only in the data volume.
+# Compose variables for this host, and this run's settings for the next run to repeat. Not secrets: those
+# live only in the data volume.
 cat > "$home/.env" <<VARS
 ACCOMY_IMAGE=$ACCOMY_IMAGE
 ACCOMY_CONFIG=$home/config.yaml
 ACCOMY_SOUL=$home/SOUL.md
 ACCOMY_LOCALES=$home/locales
+ACCOMY_SECRETS_PARAM=$ACCOMY_SECRETS_PARAM
 VARS
+[ -z "${ACCOMY_OPEN:-}" ] || echo "ACCOMY_OPEN=1" >> "$home/.env"
 if [ -n "${ACCOMY_DB_HOST:-}" ]; then
     printf 'COMPOSE_PROFILES=db\nACCOMY_DB_HOST=%s\n' "$ACCOMY_DB_HOST" >> "$home/.env"
 fi
+[ -z "${ACCOMY_MEM_LIMIT:-}" ] || printf 'ACCOMY_MEM_LIMIT=%s\n' "$ACCOMY_MEM_LIMIT" >> "$home/.env"
+[ -z "${ACCOMY_CPUS:-}" ] || printf 'ACCOMY_CPUS=%s\n' "$ACCOMY_CPUS" >> "$home/.env"
 
 cd "$home"
 aws ssm get-parameter --region "$region" --name "$ACCOMY_SECRETS_PARAM" --with-decryption \
     --query Parameter.Value --output text \
     | sh ./seed-secrets.sh ${ACCOMY_OPEN:+--open} -
-docker compose up -d
+# Recreate: the secrets live in the volume, so Compose sees no change in a run that only reseeds them.
+docker compose up -d --force-recreate
 docker compose ps
 if [ -n "${ACCOMY_DB_HOST:-}" ]; then
     # Shows whether the order store's schema is applied. Applying it is the operator's step:

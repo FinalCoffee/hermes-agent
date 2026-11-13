@@ -25,7 +25,10 @@ The profile is for end users who are not the operator. These settings carry that
 - The model gets the `accomy_travel` toolset and nothing else; `no_mcp` beside it keeps MCP servers out.
   Memory, skills, cron, the terminal, files and the web toolset are off, so nothing carries between users and
   the model has no general way to reach a network host.
-- `gateway.hide_operator_details: true` and `telegram.accept_attachments: false`.
+- `gateway.hide_operator_details: true`.
+- `telegram.accept_attachments: true`, with what makes that safe for an open bot: the plugin's daily file and
+  speech allowances, `stt.provider: accomy-transcribe` (the plugin's provider, so no built-in speech service
+  is contacted), and `supports_vision: true` on the model, without which every photo costs a second model call.
 - `telegram.allow_admin_from` and `telegram.group_allow_admin_from` are `["0"]`. The placeholder turns the
   slash policy on and matches nobody. Never leave either list empty: upstream turns gating off for a scope
   with no admin list, and every user can then run every command.
@@ -91,9 +94,14 @@ Keep these true:
   six its process supervisor needs to hand the volume to the bot user and drop to it; the gateway itself runs
   with none. It mounts no Docker socket and no writable host path: `config.yaml`, `SOUL.md`, `locales/` and
   the database CA certificate are read-only mounts. Secrets exist only in the data volume.
-- The proxy allows HTTPS to the hosts in `squid.conf` and nothing else. It decides by host, so it cannot tell a
-  search request from an order request to the same supplier. The supplier boundary is code in the plugin, not
-  this file. A new supplier host is added here and to `SUPPLIER_BUDGETS` in `plugins/accomy_travel/_common.py`.
+- The proxy allows HTTPS to the hosts in `squid.conf`, port 8443 of the one Amazon Transcribe host for
+  speech-to-text, and nothing else. It decides by host, so it cannot tell a search request from an order
+  request to the same supplier. The supplier boundary is code in the plugin, not this file. A new supplier
+  host is added here and to `SUPPLIER_BUDGETS` in `plugins/accomy_travel/_common.py`. The Transcribe host
+  carries the region of `transcribe_region` in the profile: change both together.
+- Speech-to-text uses the key pair of the IAM user `dev-accomy-bot-transcribe`, which may only open a
+  Transcribe stream. The pair lives in the profile's `.env` like every other secret. The bot cannot use the
+  instance role: it cannot reach the metadata service, and that role can read the secrets parameter.
 - `build-image.sh` puts every file git does not ignore into the image, untracked ones too. A stray file in the
   checkout ships. The script stops on an untracked file whose name looks like a secret; do not work around
   that. It does not check tracked files.

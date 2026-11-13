@@ -2841,6 +2841,19 @@ whatsapp:
 - Email defaults to `ignore` unless `platforms.email.unauthorized_dm_behavior: pair` is set, because inboxes can contain unrelated unread mail.
 - Platform sections override the global default, so you can keep pairing enabled broadly while making one platform quieter.
 
+### Hiding operator details from chat
+
+`gateway.hide_operator_details: true` is for a bot whose users are not the people who run it. Replies and the
+system prompt then leave out the host paths, the install name, the model and provider names, and the session
+details that `/new` and an auto-reset print. The copy comes from the profile's `locales/en.yaml` (or the
+matching language file), so the profile words each message itself. The default is `false`, which keeps the
+stock wording and the stock prompt.
+
+```yaml
+gateway:
+  hide_operator_details: true
+```
+
 ## Quick Commands
 
 Define custom commands that either run shell commands without invoking the LLM, or alias one slash command to another. Exec quick commands are zero-token and useful from messaging platforms (Telegram, Discord, etc.) for quick server checks or utility scripts.

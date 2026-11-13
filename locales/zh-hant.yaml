@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "沒有可用的詳細資訊"
     turn_error_detailed: "抱歉，我遇到了錯誤（{error_type}）。\n{error_detail}\n請再試一次，或使用 /reset 開始新的工作階段。"
     turn_error: "抱歉，我遇到了錯誤。"
+    turn_error_generic: "抱歉，處理時發生問題，請再傳一次訊息。"
     context_injection_refused: "上下文注入已被拒絕。"
     no_home_channel: "📬 {platform} 尚未設定主頻道。主頻道是 Hermes 傳送排程任務結果與跨平台訊息的地方。\n\n輸入 {sethome_cmd} 將這個聊天設為主頻道，或忽略此訊息以略過。"
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 等待你的選擇..."
     skip_hint: '回覆「skip」即可略過此問題。'
   errors:
+    empty_reply_generic: "我無法想出回覆，請再傳一次訊息。"
+    failed_reply_generic: "⚠️ 處理這則回覆時發生問題，無法完成。請稍後再試。"
     rate_limited: "⏱️ AI 模型服務正在限制請求速率。請稍候，再使用 /retry。"
     auth_failed: "⚠️ 登入 AI 模型服務失敗。請使用 /login 重新登入，或請這個 bot 的管理者在主機上執行 `hermes doctor`。"
     bad_request: "⚠️ AI 模型服務拒絕了這個請求。請試著換個說法，或使用 /model 切換模型。"

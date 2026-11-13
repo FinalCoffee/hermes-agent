@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "geen besonderhede beskikbaar nie"
     turn_error_detailed: "Jammer, ek het 'n fout ondervind ({error_type}).\n{error_detail}\nProbeer weer of gebruik /reset om 'n vars sessie te begin."
     turn_error: "Jammer, ek het 'n fout ondervind."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "Konteksinspuiting geweier."
     no_home_channel: "📬 Geen tuiste-kanaal is vir {platform} gestel nie. 'n Tuiste-kanaal is waar Hermes cron-taakresultate en kruisplatform-boodskappe aflewer.\n\nTik {sethome_cmd} om hierdie klets jou tuiste-kanaal te maak, of ignoreer dit om oor te slaan."
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 Wag vir jou keuse..."
     skip_hint: 'Antwoord "skip" om hierdie vraag oor te slaan.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ Die KI-modeldiens beperk tans die tempo van versoeke. Wag 'n oomblik en gebruik dan /retry."
     auth_failed: "⚠️ Aanmelding by die KI-modeldiens het misluk. Gebruik /login om weer aan te meld, of vra die persoon wat hierdie bot bedryf om `hermes doctor` op die gasheer uit te voer."
     bad_request: "⚠️ Die KI-modeldiens het hierdie versoek verwerp. Probeer jou boodskap anders formuleer, of gebruik /model om modelle te wissel."

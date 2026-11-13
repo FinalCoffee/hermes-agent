@@ -280,7 +280,6 @@ DEFAULT_CONFIG = {
         # non-positive poll) warn and fall back to defaults. See agent/turn_liveness.py.
         "turn_liveness": {"timeout_s": 600.0, "poll_s": 15.0},
     },
-
     "terminal": {
         "backend": "local",
         "modal_mode": "auto",
@@ -2094,6 +2093,7 @@ DEFAULT_CONFIG = {
         # boot (ambiguous cases carry a "recovered reply — may be a duplicate" marker;
         # at-least-once). Disable to lose in-flight final responses on crash/restart.
         "delivery_ledger": True,
+        "hide_operator_details": False,  # no host, install or model detail in chat (configuration docs)
         # Seconds to wait for one platform to connect at startup/reconnect; raise on "discord
         # connect timed out" loops (many slash commands to sync). 0/negative = wait forever. Bridged
         # to HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT, which wins if set explicitly.

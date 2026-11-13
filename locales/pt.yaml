@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "nenhum detalhe disponível"
     turn_error_detailed: "Desculpe, encontrei um erro ({error_type}).\n{error_detail}\nTente novamente ou use /reset para iniciar uma nova sessão."
     turn_error: "Desculpe, encontrei um erro."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "Injeção de contexto recusada."
     no_home_channel: "📬 Nenhum canal principal está definido para {platform}. O canal principal é onde o Hermes entrega resultados de tarefas cron e mensagens entre plataformas.\n\nDigite {sethome_cmd} para tornar este chat seu canal principal, ou ignore para pular."
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 Aguardando sua escolha..."
     skip_hint: 'Responda "skip" para pular esta pergunta.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ O serviço do modelo de IA está limitando a taxa de requisições. Aguarde um momento e use /retry."
     auth_failed: "⚠️ Falha ao entrar no serviço do modelo de IA. Use /login para entrar novamente ou peça a quem administra este bot para executar `hermes doctor` no host."
     bad_request: "⚠️ O serviço do modelo de IA rejeitou esta requisição. Tente reformular sua mensagem ou use /model para trocar de modelo."

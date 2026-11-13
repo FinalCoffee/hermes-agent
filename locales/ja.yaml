@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "詳細情報はありません"
     turn_error_detailed: "申し訳ありません。エラーが発生しました ({error_type})。\n{error_detail}\nもう一度試すか、/reset で新しいセッションを始めてください。"
     turn_error: "申し訳ありません。エラーが発生しました。"
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "コンテキストの注入を拒否しました。"
     no_home_channel: "📬 {platform} のホームチャンネルが設定されていません。ホームチャンネルは、Hermes が cron ジョブの結果やプラットフォーム間メッセージを配信する場所です。\n\nこのチャットをホームチャンネルにするには {sethome_cmd} と入力してください。不要な場合は無視してください。"
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 選択をお待ちしています..."
     skip_hint: 'この質問をスキップするには「skip」と返信してください。'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ AI モデルサービスがリクエストをレート制限しています。少し待ってから /retry を使ってください。"
     auth_failed: "⚠️ AI モデルサービスへのサインインに失敗しました。/login で再度サインインするか、このボットの運用者にホストで `hermes doctor` を実行するよう依頼してください。"
     bad_request: "⚠️ AI モデルサービスがこのリクエストを拒否しました。メッセージの言い回しを変えるか、/model でモデルを切り替えてください。"

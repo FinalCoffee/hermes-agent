@@ -409,6 +409,12 @@ _SITE_COPY: dict[str, str] = {**_FAILURE_CODE_COPY, **_ONE_OFF_COPY}
 
 def site_copy(code: str, **fields: Any) -> str:
     """Chat copy for a failure code or one-off loop outcome; unknown fields default to empty strings."""
+    from agent.operator_details import operator_details_hidden
+
+    if operator_details_hidden():
+        from agent.i18n import t
+
+        return t("gateway.errors.failed_reply_generic")
     fields.setdefault("home", display_hermes_home())
     return _SITE_COPY[code].format_map(_Defaults(fields))
 

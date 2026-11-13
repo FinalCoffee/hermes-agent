@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "keine Details verfügbar"
     turn_error_detailed: "Entschuldigung, es ist ein Fehler aufgetreten ({error_type}).\n{error_detail}\nVersuchen Sie es erneut oder verwenden Sie /reset für eine neue Sitzung."
     turn_error: "Entschuldigung, es ist ein Fehler aufgetreten."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "Kontext-Injektion abgelehnt."
     no_home_channel: "📬 Für {platform} ist kein Home-Kanal festgelegt. Im Home-Kanal liefert Hermes Cron-Job-Ergebnisse und plattformübergreifende Nachrichten ab.\n\nGeben Sie {sethome_cmd} ein, um diesen Chat zu Ihrem Home-Kanal zu machen, oder ignorieren Sie dies, um zu überspringen."
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 Warte auf Ihre Auswahl..."
     skip_hint: 'Antworte mit „skip“, um diese Frage zu überspringen.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ Der KI-Modelldienst begrenzt derzeit die Anfragerate. Warten Sie einen Moment und verwenden Sie dann /retry."
     auth_failed: "⚠️ Die Anmeldung beim KI-Modelldienst ist fehlgeschlagen. Verwenden Sie /login, um sich erneut anzumelden, oder bitten Sie den Betreiber dieses Bots, `hermes doctor` auf dem Host auszuführen."
     bad_request: "⚠️ Der KI-Modelldienst hat diese Anfrage abgelehnt. Formulieren Sie Ihre Nachricht um oder wechseln Sie das Modell mit /model."

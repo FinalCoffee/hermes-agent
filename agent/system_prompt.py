@@ -27,6 +27,7 @@ from agent.prompt_builder import (
     TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, drain_truncation_warnings,
 )
 from agent import prompt_builder as _pb
+from agent.operator_details import operator_details_hidden
 from agent.runtime_cwd import resolve_agent_cwd, resolve_context_cwd
 from hermes_constants import get_default_hermes_root, get_hermes_home
 from utils import is_truthy_value
@@ -566,7 +567,12 @@ def _identity_parts(agent: Any, ctx_len: Optional[int]) -> tuple[list[str], bool
     Returns ``(parts, soul_loaded)``."""
     wants_soul = agent.load_soul_identity or not agent.skip_context_files
     _soul_content = _pb.load_soul_md(ctx_len, home_override=_agent_home(agent)) if wants_soul else None
-    return ([_soul_content], True) if _soul_content else ([DEFAULT_AGENT_IDENTITY], False)
+    if _soul_content:
+        return [_soul_content], True
+    if operator_details_hidden():
+        # Only the name sentence is the operator's: the behaviour rules below it still apply.
+        return [DEFAULT_AGENT_IDENTITY.replace("You are Hermes Agent, built by Nous Research.", "You are a helpful assistant.")], False
+    return [DEFAULT_AGENT_IDENTITY], False
 
 
 def _guidance_parts(agent: Any) -> list[str]:
@@ -765,12 +771,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # hermes-agent skill installed, so the variant is chosen after the skills
     # index is built; this slot holds its position.
     _help_guidance_slot = len(stable_parts)
-    stable_parts.append(HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS)
+    # The help guidance names the Hermes docs; a profile that hides operator details omits it.
+    hide_operator = operator_details_hidden()
+    stable_parts.append("" if hide_operator else HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS)
     stable_parts.extend(_guidance_parts(agent))
     skills_prompt = _skills_prompt(agent)
     # Skill-pointer variant requires BOTH skill_view AND the hermes-agent skill
     # in the rendered index (pure string check — inherits the index's stability).
-    if "skill_view" in (agent.valid_tool_names or set()) and "- hermes-agent:" in skills_prompt:
+    if not hide_operator and "skill_view" in (agent.valid_tool_names or set()) and "- hermes-agent:" in skills_prompt:
         stable_parts[_help_guidance_slot] = HERMES_AGENT_HELP_GUIDANCE
     stable_parts.extend(_alibaba_identity_part(agent))
     # Pinned skills are per-agent constants (resolved once), so they live in the stable prefix.
@@ -778,7 +786,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Coding posture: the operating brief stays in the stable prefix. The
     # environment block contains the current cwd/backend and belongs after
     # project context, not ahead of a large shared AGENTS.md block.
-    environment_hints = _pb.build_environment_hints()
+    environment_hints = _pb.build_environment_hints(show_host=not hide_operator)
     coding_prefix_parts, coding_workspace_parts, coding_trailing_parts = _coding_parts(agent)
     stable_parts.extend(coding_prefix_parts)
     post_workspace_parts = _post_workspace_parts(agent)
@@ -803,7 +811,8 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     volatile_parts.extend(_plugin_section_blocks(_frozen_plugin_prompt_sections(agent), "after_memory"))
     # The profile line names this home's path, so it rides in the volatile tier: the stable
     # prefix then stays byte-identical across every profile (and home) on the host.
-    volatile_parts.append(_active_profile_line(agent))
+    if not hide_operator:
+        volatile_parts.append(_active_profile_line(agent))
     volatile_parts.append(_timestamp_line(agent))
     # Keep the renderer-owned runtime anchor after all user/plugin prose so quoted
     # host examples cannot shadow it during persisted-prompt validation.

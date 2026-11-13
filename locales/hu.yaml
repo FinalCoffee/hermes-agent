@@ -660,6 +660,7 @@ gateway:
     turn_error_no_details: "nincs elérhető részlet"
     turn_error_detailed: "Sajnálom, hibába ütköztem ({error_type}).\n{error_detail}\nPróbáld újra, vagy kezdj új munkamenetet a /reset paranccsal."
     turn_error: "Sajnálom, hibába ütköztem."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "A kontextusbeszúrás elutasítva."
     no_home_channel: "📬 Nincs beállítva home csatorna a(z) {platform} platformhoz. A home csatornába kézbesíti a Hermes a cronfeladatok eredményeit és a platformok közötti üzeneteket.\n\nÍrd be: {sethome_cmd}, hogy ez a csevegés legyen a home csatornád, vagy hagyd figyelmen kívül."
   unauthorized:
@@ -684,6 +685,8 @@ gateway:
     native_stream_placeholder: "💬 Várom a választásodat..."
     skip_hint: 'Válaszolj „skip” szóval a kérdés kihagyásához.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ Az AI-modellszolgáltatás korlátozza a kérések számát. Várj egy kicsit, majd használd a /retry parancsot."
     auth_failed: "⚠️ Nem sikerült bejelentkezni az AI-modellszolgáltatásba. Jelentkezz be újra a /login paranccsal, vagy kérd meg a bot üzemeltetőjét, hogy futtassa a `hermes doctor` parancsot a gépen."
     bad_request: "⚠️ Az AI-modellszolgáltatás visszautasította ezt a kérést. Fogalmazd át az üzenetet, vagy válts modellt a /model paranccsal."

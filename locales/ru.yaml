@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "подробности недоступны"
     turn_error_detailed: "Извините, произошла ошибка ({error_type}).\n{error_detail}\nПопробуйте ещё раз или используйте /reset, чтобы начать новый сеанс."
     turn_error: "Извините, произошла ошибка."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "Внедрение контекста отклонено."
     no_home_channel: "📬 Для {platform} не задан домашний канал. В домашний канал Hermes доставляет результаты cron-задач и сообщения с других платформ.\n\nВведите {sethome_cmd}, чтобы сделать этот чат домашним каналом, или просто проигнорируйте."
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 Жду вашего выбора..."
     skip_hint: 'Ответьте «skip», чтобы пропустить этот вопрос.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ Сервис ИИ-модели ограничивает частоту запросов. Подождите немного, затем используйте /retry."
     auth_failed: "⚠️ Не удалось войти в сервис ИИ-модели. Используйте /login, чтобы войти заново, или попросите того, кто запускает этого бота, выполнить `hermes doctor` на хосте."
     bad_request: "⚠️ Сервис ИИ-модели отклонил этот запрос. Попробуйте переформулировать сообщение или используйте /model, чтобы сменить модель."

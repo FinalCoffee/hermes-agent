@@ -650,6 +650,7 @@ gateway:
     turn_error_no_details: "níl aon sonraí ar fáil"
     turn_error_detailed: "Ár leithscéal, tháinig earráid orm ({error_type}).\n{error_detail}\nBain triail eile as nó úsáid /reset chun seisiún úr a thosú."
     turn_error: "Ár leithscéal, tháinig earráid orm."
+    turn_error_generic: "Sorry, something went wrong while I was working on that. Please send your message again."
     context_injection_refused: "Diúltaíodh d'insteallta comhthéacs."
     no_home_channel: "📬 Níl aon chainéal baile socraithe do {platform}. Is é an cainéal baile an áit a seachadann Hermes torthaí tascanna cron agus teachtaireachtaí trasardáin.\n\nClóscríobh {sethome_cmd} chun an comhrá seo a dhéanamh mar chainéal baile, nó déan neamhaird de chun é a fhágáil ar lár."
   unauthorized:
@@ -674,6 +675,8 @@ gateway:
     native_stream_placeholder: "💬 Ag fanacht le do rogha..."
     skip_hint: 'Freagair "skip" chun an cheist seo a scipeáil.'
   errors:
+    empty_reply_generic: "I could not come up with a reply to that. Please send your message again."
+    failed_reply_generic: "⚠️ Something went wrong and I couldn't finish this reply. Please try again in a moment."
     rate_limited: "⏱️ Tá seirbhís na samhla AI ag teorannú ráta na n-iarratas. Fan nóiméad, ansin úsáid /retry."
     auth_failed: "⚠️ Theip ar shíniú isteach i seirbhís na samhla AI. Úsáid /login chun síniú isteach arís, nó iarr ar an duine a ritheann an bot seo `hermes doctor` a rith ar an óstach."
     bad_request: "⚠️ Dhiúltaigh seirbhís na samhla AI don iarratas seo. Bain triail as do theachtaireacht a athfhoclú, nó úsáid /model chun samhail eile a roghnú."

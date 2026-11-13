@@ -1018,13 +1018,14 @@ def _embedder_environment_hint() -> str:
         (_config_readonly("agent.environment_hint").get("agent", {}) or {}).get("environment_hint", "")).strip()
 
 
-def build_environment_hints() -> str:
+def build_environment_hints(show_host: bool = True) -> str:
     """Execution-environment block: local backends get host OS/home/cwd; remote/sandbox
     backends get ONLY the backend's own state (the agent's tools cannot touch the host).
-    WSL and embedder hints are appended."""
+    WSL and embedder hints are appended. ``show_host`` False drops the local host lines
+    (``gateway.hide_operator_details``)."""
     backend = (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
     is_remote_backend = backend in _REMOTE_TERMINAL_BACKENDS or _plugin_backend_is_remote(backend)
-    hints = [_remote_backend_hint(backend)] if is_remote_backend else _local_host_hints()
+    hints = [_remote_backend_hint(backend)] if is_remote_backend else (_local_host_hints() if show_host else [])
     # A host-placed Bot Screen is only reachable from a local backend (a sandboxed terminal cannot
     # open windows on the gateway host), and a sandbox-placed one is the sandbox probe's business.
     if not is_remote_backend:

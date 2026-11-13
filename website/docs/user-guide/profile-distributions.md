@@ -256,6 +256,7 @@ research-bot/
 ├── distribution.yaml            # required
 ├── SOUL.md                      # strongly recommended
 ├── config.yaml                  # model, provider, tool defaults
+├── locales/en.yaml              # optional: wording overrides for the gateway's chat messages
 ├── mcp.json                     # MCP server connections
 ├── skills/
 │   ├── arxiv-search/SKILL.md

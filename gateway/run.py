@@ -2800,7 +2800,6 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                 # disabled is keyed by the declared frontmatter name (what skills.disabled stores).
                 if slug == normalized and declared_name in disabled:
                     return t("gateway.skills.disabled", name=command_name)
-
         # Check optional skills (shipped with repo but not installed)
         from hermes_constants import get_optional_skills_dir
         repo_root = Path(__file__).resolve().parent.parent
@@ -3105,11 +3104,12 @@ def _normalize_empty_agent_response(
             # A loop site code (truncated, context_overflow, ...) already wrote the full
             # what-happened / what-to-do sentence: deliver it verbatim. Wrapping it would cut it
             # mid-sentence at 200 chars and append a second, conflicting set of instructions.
+            from agent.operator_details import operator_details_hidden
             from agent.turn_failure_copy import SITE_FAILURE_CODES
             if (str(agent_result.get("failure_reason") or "") in SITE_FAILURE_CODES
                     and err.strip() and not _looks_like_gateway_provider_error(err)):
                 return err if err.startswith("⚠️") else f"⚠️ {err}"
-            if _looks_like_gateway_provider_error(err):
+            if _looks_like_gateway_provider_error(err) or operator_details_hidden():
                 logger.warning("Agent turn ended partially; reply sanitized for chat. Detail: %s", err[:500])
                 reason = ""
             else:

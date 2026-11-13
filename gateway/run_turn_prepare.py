@@ -582,7 +582,9 @@ class GatewayTurnPrepareMixin:
             if adapter:
                 notice = t("gateway.session.auto_reset_notice")
                 with suppress(Exception):
-                    session_info = await asyncio.to_thread(self._reset_notice_session_info, source)
+                    from agent.operator_details import operator_details_hidden
+                    session_info = "" if operator_details_hidden() else await asyncio.to_thread(
+                        self._reset_notice_session_info, source)
                     if session_info:
                         notice = f"{notice}\n\n{session_info}"
                 await adapter.send(source.chat_id, notice, metadata=self._thread_metadata_for_source(source))

@@ -154,10 +154,16 @@ class GatewayTurnPersistenceMixin:
             # peer would take it as a message to answer (#137027).
             response = ""
         if response == "(empty)" and not _intentional_silence:
-            from agent.turn_explainers import EMPTY_RESPONSE_EXPLANATION
+            from agent.operator_details import operator_details_hidden
 
-            _model = str(agent_result.get("model") or "").strip() or t("gateway.errors.empty_response_model_label")
-            response = t("gateway.shared.warn_passthrough", error=EMPTY_RESPONSE_EXPLANATION.format(model=_model))
+            if operator_details_hidden():
+                _explanation = t("gateway.errors.empty_reply_generic")
+            else:
+                from agent.turn_explainers import EMPTY_RESPONSE_EXPLANATION
+
+                _model = str(agent_result.get("model") or "").strip() or t("gateway.errors.empty_response_model_label")
+                _explanation = EMPTY_RESPONSE_EXPLANATION.format(model=_model)
+            response = t("gateway.shared.warn_passthrough", error=_explanation)
         agent_messages = agent_result.get("messages", [])
         logger.info(
             "response ready: platform=%s chat=%s session=%s time=%.1fs api_calls=%d response=%d chars",

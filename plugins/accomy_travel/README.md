@@ -359,3 +359,6 @@ Hermes policy keeps third-party product plugins out of the upstream tree (`plugi
 directory is self-contained: it uses only the public plugin API, so it can move to
 `$HERMES_HOME/plugins/accomy_travel/` or to its own repository unchanged. The profile in
 `distributions/accomy/` refers to the plugin by name, so it keeps working after the move.
+
+`FORK.md` at the repository root lists every upstream file this fork changed, and how to bring in new
+upstream work.

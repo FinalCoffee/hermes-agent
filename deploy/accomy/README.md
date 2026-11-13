@@ -4,6 +4,9 @@ Runs the Accomy AI Travel bot (`plugins/accomy_travel/`, profile `distributions/
 Hermes process tree inside a container. This is the posture `SECURITY.md` §2.2 asks for when strangers can
 message the bot: the operating system, not the agent, is the boundary.
 
+This directory exists only in the Accomy fork. `FORK.md` at the repository root says how the fork differs from
+upstream Hermes.
+
 ## What the bot container can reach
 
 | | Allowed | Blocked |

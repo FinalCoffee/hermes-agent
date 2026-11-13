@@ -2843,11 +2843,13 @@ whatsapp:
 
 ### Hiding operator details from chat
 
-`gateway.hide_operator_details: true` is for a bot whose users are not the people who run it. Replies and the
-system prompt then leave out the host paths, the install name, the model and provider names, and the session
-details that `/new` and an auto-reset print. The copy comes from the profile's `locales/en.yaml` (or the
-matching language file), so the profile words each message itself. The default is `false`, which keeps the
-stock wording and the stock prompt.
+`gateway.hide_operator_details: true` is for a bot whose users are not the people who run it. The system
+prompt then leaves out the host, home and working directory lines, the profile line and the pointers to the
+Hermes docs, and names the assistant generically when the profile has no `SOUL.md`. Replies leave out the
+error type and message, the model name on an empty reply, and the session details (model, provider, context)
+that `/new` and an auto-reset print. The copy comes from the profile's `locales/en.yaml` (or the matching
+language file), so the profile words each message itself. The default is `false`, which keeps the stock
+wording and the stock prompt.
 
 ```yaml
 gateway:

@@ -242,7 +242,7 @@ Results are only served to users who pass your gateway allowlist — unauthorize
 
 ### Suggested replies (tap-to-answer buttons)
 
-When enabled, the agent can end a reply with up to four short next-message options, and Telegram shows them as buttons under that reply. Tapping one sends its text as your next message, exactly as if you had typed it; the keyboard is then removed.
+When enabled, the agent can end a reply with up to four short next-message options, and Telegram shows them as buttons under that reply. Tapping one sends its text as your next message, exactly as if you had typed it; the keyboard then collapses to the option you picked.
 
 ```yaml
 telegram:

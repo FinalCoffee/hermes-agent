@@ -1,0 +1,155 @@
+# Accomy AI Travel bot in a container: the whole Hermes process tree is wrapped (SECURITY.md §2.2).
+#
+#   ./build-image.sh                                # builds accomy-hermes:local
+#   ./seed-secrets.sh --open /path/to/profile/.env  # once: secrets into the data volume
+#   docker compose up -d
+#
+# What the bot container can reach:
+#   - files: its own image (read-only), the `data` volume, and read-only profile files. No host
+#     directory, no Docker socket.
+#   - network: the `egress` proxy, which forwards HTTPS to the hosts in squid.conf only, and with the
+#     `db` profile one PostgreSQL server. The `internal` network has no route to the internet, the
+#     host or the cloud metadata service.
+#   - ports: none are published. Telegram is long-polled outbound.
+
+name: accomy
+
+services:
+  bot:
+    image: ${ACCOMY_IMAGE:-accomy-hermes:local}
+    command: ["gateway", "run"]
+    restart: unless-stopped
+    depends_on:
+      - egress
+    networks:
+      - internal
+    # The database's own name resolves to the relay, so TLS still verifies the server's certificate.
+    extra_hosts:
+      - "${ACCOMY_DB_HOST:-accomy-db.invalid}:10.213.77.10"
+    environment:
+      # httpx (model client, supplier clients) and the Telegram adapter read these.
+      HTTPS_PROXY: http://egress:3128
+      HTTP_PROXY: http://egress:3128
+      https_proxy: http://egress:3128
+      http_proxy: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+      # The adapter's fallback dials Telegram by bare IP, which the proxy refuses by design.
+      HERMES_TELEGRAM_DISABLE_FALLBACK_IPS: "1"
+      # s6-overlay's switch for `read_only: true`: it keeps its own state under /run.
+      S6_READ_ONLY_ROOT: "1"
+      # The image's PATH also names /opt/data/.local/bin, a directory in the volume that the bot user
+      # can write and that root's start-up scripts would then run programs from.
+      PATH: /opt/hermes/bin:/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      # Trust anchor for the order store's TLS connection (libpq's variable; the driver reads it).
+      PGSSLROOTCERT: /etc/accomy/rds-ca.pem
+    volumes:
+      - data:/opt/data
+      # Read-only: nothing in the container can change who is admin or which commands and toolsets
+      # the profile allows. Edit the host file and restart to change the profile.
+      - ${ACCOMY_CONFIG:-../../distributions/accomy/config.yaml}:/opt/data/config.yaml:ro
+      - ${ACCOMY_SOUL:-../../distributions/accomy/SOUL.md}:/opt/data/SOUL.md:ro
+      - ${ACCOMY_DB_CA:-./rds-ca-ap-southeast-1.crt}:/etc/accomy/rds-ca.pem:ro
+    # The image is immutable at run time: only the data volume and these in-memory mounts are writable.
+    read_only: true
+    tmpfs:
+      - /run:exec,mode=0755,size=64m
+      # no-tmp: ok — a mount point inside the container
+      - /tmp:mode=1777,size=256m
+      # terminal.cwd in the profile (~ is /opt/data here): must exist and stay empty.
+      - /opt/data/accomy-workspace:ro,size=1m,mode=0555
+      # Hermes loads plugins and hooks from these volume paths at start, and a plugin here would
+      # replace the bundled one of the same name. Empty and read-only: only the image's code runs.
+      - /opt/data/plugins:ro,size=1m,mode=0555
+      - /opt/data/hooks:ro,size=1m,mode=0555
+    # The s6 supervisor (PID 1) runs as root with these six capabilities for the container's life:
+    # CHOWN, DAC_OVERRIDE and FOWNER to hand the volume to the bot user, SETUID and SETGID to drop to
+    # it, KILL to stop it. The gateway itself runs as uid 10000 with none, and nothing can gain more.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${ACCOMY_MEM_LIMIT:-1024m}
+    cpus: ${ACCOMY_CPUS:-1.5}
+    pids_limit: 512
+    stop_grace_period: 30s
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  egress:
+    # ubuntu/squid:6.6-24.04_edge (Squid 6.14), pinned by its multi-arch index digest.
+    image: ubuntu/squid@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    restart: unless-stopped
+    networks:
+      - internal
+      - outside
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+    read_only: true
+    tmpfs:
+      - /run:mode=0755,size=1m
+      # Squid's logs, which the entrypoint tails into `docker logs`. In memory and capped: when it
+      # fills, Squid stops, Docker restarts it and the log starts empty.
+      - /var/log/squid:uid=13,gid=13,mode=0750,size=32m
+      - /var/spool/squid:uid=13,gid=13,mode=0750,size=1m
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      # The entrypoint (root) tails log files owned by the proxy user.
+      - DAC_READ_SEARCH
+    security_opt:
+      - no-new-privileges:true
+    # Squid sizes its tables from the file-descriptor limit; Docker's default of a million costs 150 MB.
+    ulimits:
+      nofile: 4096
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging: *logging
+
+  db:
+    # The bot's only route to the order database: a TCP relay to one server and port. TLS runs end to
+    # end between the bot and the database; the relay sees ciphertext.
+    # Enabled with COMPOSE_PROFILES=db and ACCOMY_DB_HOST=<the database's host name>.
+    profiles: ["db"]
+    # alpine/socat:1.8.0.3, pinned by its multi-arch index digest.
+    image: alpine/socat@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "TCP:${ACCOMY_DB_HOST:-accomy-db.invalid}:5432"]
+    restart: unless-stopped
+    user: "65534:65534"
+    networks:
+      internal:
+        ipv4_address: 10.213.77.10
+      outside: {}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 256
+    logging: *logging
+
+networks:
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.213.77.0/24
+  outside: {}
+
+volumes:
+  data: {}

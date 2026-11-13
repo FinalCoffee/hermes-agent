@@ -104,12 +104,14 @@ async def test_a_sender_is_held_to_its_turns_per_day_across_minutes(clock):
 
 @_run
 async def test_the_global_minute_limit_holds_when_many_accounts_each_stay_under_their_own(clock):
-    per_account = ingress.GLOBAL_TURNS_PER_MINUTE // 5
-    assert per_account < ingress.TURNS_PER_MINUTE  # every account is within its own limit
+    per_account = ingress.TURNS_PER_MINUTE - 1  # every account stays within its own limit
+    accounts, rest = divmod(ingress.GLOBAL_TURNS_PER_MINUTE, per_account)
 
-    for account in range(5):
+    for account in range(accounts):
         for _ in range(per_account):
             assert await _gate(_event(user=str(account), chat=str(account))) is None
+    for _ in range(rest):
+        assert await _gate(_event(user="last", chat="last")) is None
 
     assert await _gate(_event(user="99", chat="99")) == SKIP_GLOBAL
 

@@ -43,10 +43,12 @@ CALLS_PER_DAY = 400
 # Process-wide supplier budgets per host, as (per minute, per day). Every chat shares them, so many accounts
 # cannot multiply supplier spend; the per-sender limits above bound one account only. Seat Unique allows 120
 # requests a minute per key, so 100 keeps 20 in reserve. The other hosts publish no limit this plugin knows, so
-# their numbers are sized to a planning load and should be tuned to each supplier contract.
+# their numbers are sized to a planning load and should be tuned to each supplier contract. TMC's are sized for
+# about twenty people searching in the same minute: a flight search is up to three calls and a hotel search up
+# to four.
 SUPPLIER_BUDGETS: dict[str, tuple[int, int]] = {
     "api.sandbox.dev.seatunique.tech": (100, 3000),
-    "open.fusionconnectgroup.com": (60, 2000),
+    "open.fusionconnectgroup.com": (180, 6000),
     "maps.googleapis.com": (120, 3000),
     "places.googleapis.com": (120, 3000),
     "weather.googleapis.com": (120, 3000),

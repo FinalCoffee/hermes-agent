@@ -120,7 +120,7 @@ them. The limits are in-process and apply to every chat at once. A restart reset
 
 - **Turns, per sender:** 15 a minute and 150 a day. A message that is not a session command counts as a turn.
   Suggested-reply taps and refused attachments count too.
-- **Turns, all senders together:** 60 a minute and 5,000 a day. The daily total is the bot's spend ceiling: set
+- **Turns, all senders together:** 180 a minute and 5,000 a day. The daily total is the bot's spend ceiling: set
   it to what your model budget allows. Many accounts that each stay under their own limit still
   cannot exceed this. Accounts that the allowlist refuses are not counted, so a stranger cannot use up this budget.
   A refused stranger gets only the gateway's own decline or pairing reply.
@@ -135,8 +135,8 @@ them. The limits are in-process and apply to every chat at once. A restart reset
 - **Tool calls, per sender:** 30 a minute (existing) and 400 a day. Refused calls return `rate_limited`, and the
   assistant asks the user to try later.
 - **Supplier calls, per host, all senders together:** Seat Unique 100 a minute and 3,000 a day, because its key
-  allows 120 a minute. TMC 60 and 2,000. Google Maps, Places and Weather 120 and 3,000 each. Brave 60 and 1,000.
-  Any other host gets 60 and 1,000.
+  allows 120 a minute. TMC 180 and 6,000, sized for about twenty people searching at once. Google Maps, Places
+  and Weather 120 and 3,000 each. Brave 60 and 1,000. Any other host gets 60 and 1,000.
 
 A limited user gets one short notice per window, not one per dropped message, and the bot sends at most 20
 notices a minute in total.

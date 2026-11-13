@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 # taps: a busy minute is about ten answers to a run of questions, so 15 a minute leaves headroom. A script that
 # sends one message a second is held to a quarter of that rate. A full planning day is about 100 messages, so
 # 150 a day leaves headroom. The global limits are totals across all senders, so many accounts that each stay
-# under their own limit cannot exceed them: 60 a minute serves four senders at their full rate at once, and
-# 5,000 a day is about fifty full planning days. The daily total is the bot's spend ceiling: size it to the
-# model budget.
+# under their own limit cannot exceed them: 180 a minute serves twenty people who each send nine messages in
+# the same minute, or twelve senders at their full rate at once, and 5,000 a day is about fifty full planning
+# days. The daily total is the bot's spend ceiling: size it to the model budget.
 TURNS_PER_MINUTE = 15
 TURNS_PER_DAY = 150
-GLOBAL_TURNS_PER_MINUTE = 60
+GLOBAL_TURNS_PER_MINUTE = 180
 GLOBAL_TURNS_PER_DAY = 5000
 
 # Telegram caps one message at 4096 characters. The adapter merges rapid chunks into one turn with no cap of its

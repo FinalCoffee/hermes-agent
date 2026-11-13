@@ -67,7 +67,7 @@ class FakeTmc:
 def _hotel_state(monkeypatch):
     tmc_client._tokens.clear()
     tmc_client._airport_cache.clear()
-    tools_hotels._hotel_names.clear()
+    tools_hotels._hotels.clear()
     quotes._quotes.clear()
     monkeypatch.setattr(
         _common,
@@ -491,4 +491,4 @@ def test_hotel_search_prices_are_usd_strings_and_the_names_are_kept_for_rates(mo
     body = json.loads(tools_hotels.search_hotels(_search_args()))
 
     assert all(isinstance(hotel["from_nightly_price"]["amount"], str) for hotel in body["hotels"])
-    assert tools_hotels._hotel_names[body["hotels"][0]["hotel_id"]] == body["hotels"][0]["name"]
+    assert tools_hotels._hotels[body["hotels"][0]["hotel_id"]][0] == body["hotels"][0]["name"]

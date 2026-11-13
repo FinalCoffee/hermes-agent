@@ -196,6 +196,35 @@ telegram:
 
 Do not delete the lists. An empty list turns gating off, and every user then gets every command.
 
+## Travel standard
+
+Every hotel and flight search applies one demonstration travel standard, in `standard.py`. Its rules have the
+shape of a TMC travel policy (a nightly budget with city budgets, a lowest-price rule, and cabins by flight
+duration without stopover time). The bot applies them itself: it reads nothing from, and writes nothing to, the
+TMC tenant's own travel policies, so the standard is the same under any TMC key.
+
+| Rule | Limit |
+|---|---|
+| Hotel, per room for any night | 200 USD. 300 USD in London, Paris and New York (TMC city codes 2114, 2734 and 2621) |
+| Flight with less than 8 hours of flying time | Economy only |
+| Flight with 8 hours of flying time or more | Economy, premium economy or business. Never first class |
+| Fare | At most 70% above the cheapest fare of the same search (same route, date and cabin) |
+
+- A room rate is within the hotel budget when no night of the stay costs more for a room, and the stay's total
+  (which carries any taxes) does not average more per room per night. `search_hotels` judges a hotel by its
+  lowest nightly price, and reads at most three result pages: when all of those are above the budget, it says
+  that hotels further away were not checked.
+- Flying time is the flights' own durations added up, so the wait at a stop is not counted. A flight whose
+  duration the supplier does not give counts as under 8 hours.
+- `search_hotels`, `get_hotel_rooms` and `search_flights` return only what is within the standard and count the
+  rest as `outside_travel_standard`. What is left out gets no `quote_id`, so it cannot be ordered. When
+  `get_flight_offer` re-prices a fare above its search's limit, the fare loses its quote.
+- `search_flights` takes a `cabin` (`economy`, `premium_economy` or `business`). First class is not an option.
+- A price with no US dollar amount cannot be judged. It is shown as unconverted, as before, and cannot be ordered.
+- The assistant explains the standard in the user's language. Its text is the `accomy.travel_standard` prompt
+  section, rendered from the same constants the tools use. `/start` offers the question as a button.
+- To change the standard, edit the constants in `standard.py`.
+
 ## What end users see
 
 The profile is for end users, so nothing about the agent underneath reaches them:
@@ -226,6 +255,7 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   and quotes that expire after 30 minutes. A refused order says why in the chat.
 - Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
 - Prices are converted with a fixed demo table of reference rates, so converted prices are approximate.
+- Hotels and flights outside the travel standard are not offered and cannot be ordered (see Travel standard).
 - Supplier environments may be sandboxes, so prices and availability are indicative.
 - Google Routes is not enabled. Directions are Google Maps links.
 - Weather covers about 10 days ahead.

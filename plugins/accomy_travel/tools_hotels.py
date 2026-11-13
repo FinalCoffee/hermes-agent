@@ -1,16 +1,17 @@
 """Hotel search, details and room rates on the TMC open platform, priced in US dollars.
 
 Nothing here calls an order endpoint. A rate that is shown is remembered as a quote (see quotes.py), which is what
-place_order can book.
+place_order can book. Hotels and rates above the travel standard's nightly budget (standard.py) are not shown.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
-from . import _common, fx, geo, quotes, tmc_client
+from . import _common, fx, geo, quotes, standard, tmc_client
 from ._common import ApiError, ToolSpec, clean_text
 
 _TMC_ENV = (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV)
@@ -77,24 +78,28 @@ def _map_url(lat: Any, lng: Any) -> str | None:
     return f"https://www.google.com/maps/search/?api=1&query={float(lat)},{float(lng)}"
 
 
-# Hotel names by id. A rate quote carries the name, and get_hotel_rooms reads it from here before it asks TMC.
-_NAMES_MAX = 5000
-_hotel_names: dict[int, str] = {}
+# Each hotel's name and TMC city code by id. A rate quote carries the name and the travel standard's nightly budget
+# goes by the city, so get_hotel_rooms reads both from here before it asks TMC.
+_HOTELS_MAX = 5000
+_hotels: dict[int, tuple[str, str]] = {}
 
 
-def _note_name(hotel_id: Any, name: str) -> None:
-    if isinstance(hotel_id, int) and name:
-        if len(_hotel_names) >= _NAMES_MAX:
-            _hotel_names.clear()
-        _hotel_names[hotel_id] = name
+def _note_hotel(raw: dict) -> tuple[str, str]:
+    """(name, TMC city code) as a search row or a detail page gives them, kept for later when the hotel is named."""
+    hotel_id = raw.get("hotelId")
+    facts = clean_text(raw.get("hotelName"), 160), str(raw.get("cityCode") or "")
+    if isinstance(hotel_id, int) and facts[0]:
+        if len(_hotels) >= _HOTELS_MAX:
+            _hotels.clear()
+        _hotels[hotel_id] = facts
+    return facts
 
 
-def _hotel_name(hotel_id: int) -> str:
-    name = _hotel_names.get(hotel_id)
-    if name is None:
-        name = clean_text((tmc_client.hotel_detail(hotel_id) or {}).get("hotelName"), 160)
-        _note_name(hotel_id, name)
-    return name or f"Hotel {hotel_id}"
+def _hotel(hotel_id: int) -> tuple[str, str]:
+    """(name, TMC city code) of a hotel, from what was shown or else from its detail page."""
+    name, city_code = _hotels.get(hotel_id) or _note_hotel(
+        {**(tmc_client.hotel_detail(hotel_id) or {}), "hotelId": hotel_id})
+    return name or f"Hotel {hotel_id}", city_code
 
 
 def _star_codes(min_stars: int | None) -> list[int] | None:
@@ -180,7 +185,9 @@ def _search_schema() -> dict:
             "Search hotels with prices in a city or area for given dates, by destination text (any language). "
             "Returns up to max_results hotels with from_nightly_price (the lowest list rate per night) and "
             "stay_total_price, in US dollars. Converted prices are approximate and are a starting point: call "
-            "get_hotel_rooms for exact room and rate prices and quote ids."
+            "get_hotel_rooms for exact room and rate prices and quote ids. Only hotels within the travel "
+            "standard's nightly budget are returned; outside_travel_standard counts those left out among the "
+            "hotels checked."
         ),
         "parameters": {
             "type": "object",
@@ -233,7 +240,7 @@ def search_hotels(args: dict) -> str:
     lat, lng, label = _locate(destination)
     rows: list[dict] = []
     seen: set = set()
-    listed = 0
+    listed = over_budget = 0
     total_count = total_pages = None
     page_no = 1
     while True:
@@ -250,11 +257,15 @@ def search_hotels(args: dict) -> str:
         total_count, total_pages = page["totalCount"], page["totalPage"]
         listed += len(page["hotels"])
         for raw in page["hotels"]:
-            _note_name(raw.get("hotelId"), clean_text(raw.get("hotelName"), 160))
+            _note_hotel(raw)
             row = _hotel_row(raw, nights)
             # The catalog can shift between page reads, repeating a hotel on the next page.
-            if row is not None and row["hotel_id"] not in seen:
-                seen.add(row["hotel_id"])
+            if row is None or row["hotel_id"] in seen:
+                continue
+            seen.add(row["hotel_id"])
+            if _over_budget(row["from_nightly_price"], raw.get("cityCode")):
+                over_budget += 1
+            else:
                 rows.append(row)
         if len(rows) >= max_results or page_no >= _MAX_SEARCH_PAGES or not _has_next_page(page_no, total_pages):
             break
@@ -262,6 +273,22 @@ def search_hotels(args: dict) -> str:
     rows.sort(key=_SORT_KEYS[sort])
     if rows:
         hint = "Pass hotel_id to get_hotel_rooms for rates, or to get_hotel_details for facilities and policies."
+        if over_budget:
+            hint += (
+                f" {over_budget} hotels above the travel standard's nightly budget were left out: tell the user "
+                "how many and why."
+            )
+    elif over_budget and _has_next_page(page_no, total_pages):
+        hint = (
+            f"The {over_budget} nearest hotels with a price all cost more per night than the travel standard "
+            "allows; hotels further away were not checked. Tell the user so, and offer a search around another "
+            "area or other dates."
+        )
+    elif over_budget:
+        hint = (
+            "Hotels were found, but every one costs more per night than the travel standard allows. Tell the "
+            "user, and offer other dates or a nearby area."
+        )
     elif listed:
         hint = (
             "Hotels exist near that place, but none had a list price for these dates. Try other dates, "
@@ -276,9 +303,16 @@ def search_hotels(args: dict) -> str:
         check_out=check_out,
         nights=nights,
         total_matches=total_count,
+        outside_travel_standard=over_budget,
         hotels=rows[:max_results],
         hint=hint,
     )
+
+
+def _over_budget(nightly: dict, city_code: Any) -> bool:
+    """Whether a displayed nightly price is above the travel standard's budget for the hotel's city. A price with
+    no US dollar amount cannot be judged: it stays, marked unconverted, and cannot be ordered."""
+    return not nightly.get("unconverted") and Decimal(nightly["amount"]) > standard.nightly_budget(city_code)
 
 
 def _has_next_page(page_no: int, total_pages: Any) -> bool:
@@ -358,7 +392,7 @@ def get_hotel_details(args: dict) -> str:
             "not_found",
             f"Hotel {hotel_id} was not found. Use a hotel_id from search_hotels.",
         )
-    _note_name(raw.get("hotelId"), clean_text(raw.get("hotelName"), 160))
+    _note_hotel(raw)
     detail = _common.compact(
         {
             "hotel_id": raw.get("hotelId"),
@@ -406,6 +440,13 @@ class _Stay:
     check_out: date
     adults: int
     rooms: int
+    nightly_budget: Decimal
+
+    def over_budget(self, total: Decimal, nights: list[Decimal]) -> bool:
+        """Whether a rate, in US dollars, is above the travel standard's nightly budget: one of its nights costs
+        more for a room, or the stay total, which carries any taxes, averages more per room per night."""
+        average = total / ((self.check_out - self.check_in).days * self.rooms)
+        return max([average, *nights]) > self.nightly_budget
 
 
 def _cancellation_note(first: dict) -> str | None:
@@ -423,8 +464,20 @@ def _cancellation_note(first: dict) -> str | None:
     return ("Supplier cancellation terms: " + ", ".join(parts))[:500]
 
 
-def _rate_plan(product: dict, group: dict, stay: _Stay) -> tuple[dict, quotes.HotelRate | None] | None:
-    """A rate for the model, and the facts an order needs for it. None when the rate has no price for the party."""
+def _night_prices(items: list[dict], currency: str) -> list[Decimal]:
+    """Each night's price for one room, in US dollars, for the nights the supplier lists in a currency with a rate."""
+    prices = []
+    for item in items:
+        amount = _common.supplier_amount(item.get("salePrice"))
+        night = fx.to_usd(amount, item.get("currency") or currency) if amount is not None else None
+        if night is not None:
+            prices.append(night.amount)
+    return prices
+
+
+def _rate_plan(product: dict, group: dict, stay: _Stay) -> tuple[dict, quotes.HotelRate | None, bool] | None:
+    """A rate for the model, the facts an order needs for it, and whether it is above the travel standard's
+    nightly budget. None when the rate has no price for the party."""
     source = _common.supplier_amount(product.get("totalSalePrice"))
     if source is None:
         return None  # no price for the party, not a free stay
@@ -458,9 +511,10 @@ def _rate_plan(product: dict, group: dict, stay: _Stay) -> tuple[dict, quotes.Ho
     )
     total = fx.to_usd(source, currency)
     rate_plan_id = str(product.get("ratePlanId") or "")
+    over_budget = total is not None and stay.over_budget(total.amount, _night_prices(items, currency))
     if total is None or not rate_plan_id:
-        return view, None
-    return view, quotes.HotelRate(
+        return view, None, over_budget
+    facts = quotes.HotelRate(
         hotel_id=stay.hotel_id,
         hotel_name=stay.hotel_name,
         room_id=group.get("roomId"),
@@ -475,24 +529,29 @@ def _rate_plan(product: dict, group: dict, stay: _Stay) -> tuple[dict, quotes.Ho
         cancellation=_cancellation_note(first),
         total=total,
     )
+    return view, facts, over_budget
 
 
-def _room_row(group: dict, stay: _Stay) -> dict | None:
+def _room_row(group: dict, stay: _Stay) -> tuple[dict | None, int]:
+    """A room with up to four of its rates, and how many rates the travel standard's nightly budget left out. A
+    rate with no US dollar total cannot be judged: it stays, without a quote."""
     priced = [
         pair
         for pair in (
             _rate_plan(p, group, stay) for p in group.get("products") or [] if isinstance(p, dict)
         )
         if pair is not None
-    ][:4]
-    if not priced:
-        return None
+    ]
+    within = [(view, facts) for view, facts, over_budget in priced if not over_budget]
+    over_budget = len(priced) - len(within)
+    if not within:
+        return None, over_budget
     rates = []
-    for view, facts in priced:
+    for view, facts in within[:4]:
         if facts is not None:
             view["quote_id"] = quotes.remember(quotes.HOTEL, facts)
         rates.append(view)
-    return _common.compact(
+    row = _common.compact(
         {
             "room_id": group.get("roomId"),
             "room_name": clean_text(group.get("roomName"), 160),
@@ -500,6 +559,7 @@ def _room_row(group: dict, stay: _Stay) -> dict | None:
             "rates": rates,
         }
     )
+    return row, over_budget
 
 
 def _rooms_schema() -> dict:
@@ -509,7 +569,9 @@ def _rooms_schema() -> dict:
             "Room types and rate plans with prices in US dollars for one hotel, dates and party. total_price is for the "
             "whole stay for the whole party; avg_nightly_price is per night. Converted prices are approximate. "
             "breakfast_per_day counts breakfasts; the cancellation fields are supplier codes, so confirm the terms with "
-            "the hotel. Each rate with a quote_id can be booked with place_order."
+            "the hotel. Each rate with a quote_id can be booked with place_order. Only rates within nightly_budget, "
+            "the travel standard's limit per room per night for this hotel, are returned; outside_travel_standard "
+            "counts the ones left out."
         ),
         "parameters": {
             "type": "object",
@@ -552,23 +614,40 @@ def get_hotel_rooms(args: dict) -> str:
         adults=adults,
         rooms=rooms,
     )
+    hotel_name, city_code = _hotel(hotel_id)
     stay = _Stay(
         hotel_id=hotel_id,
-        hotel_name=_hotel_name(hotel_id),
+        hotel_name=hotel_name,
         check_in=date.fromisoformat(check_in),
         check_out=date.fromisoformat(check_out),
         adults=adults,
         rooms=rooms,
+        nightly_budget=standard.nightly_budget(city_code),
     )
-    room_rows = [
-        row for row in (_room_row(group, stay) for group in groups) if row is not None
-    ]
-    hint = (
-        "Totals are for the whole stay and party in US dollars; converted prices are approximate. Only rates "
-        "with a quote_id can be booked, and quote ids expire after 30 minutes."
-        if room_rows
-        else "No rooms with a price for this party and these dates. Try other dates or fewer guests."
-    )
+    room_rows = []
+    over_budget = 0
+    for group in groups:
+        row, left_out = _room_row(group, stay)
+        over_budget += left_out
+        if row is not None:
+            room_rows.append(row)
+    if room_rows:
+        hint = (
+            "Totals are for the whole stay and party in US dollars; converted prices are approximate. Only rates "
+            "with a quote_id can be booked, and quote ids expire after 30 minutes."
+        )
+        if over_budget:
+            hint += (
+                f" {over_budget} rates above the travel standard's nightly budget were left out: tell the user "
+                "how many and why."
+            )
+    elif over_budget:
+        hint = (
+            "Every rate of this hotel for these dates costs more per room per night than the travel standard "
+            "allows (nightly_budget). Tell the user, and offer another hotel or other dates."
+        )
+    else:
+        hint = "No rooms with a price for this party and these dates. Try other dates or fewer guests."
     return _common.ok(
         note=_common.UNTRUSTED_NOTE,
         hotel_id=hotel_id,
@@ -577,6 +656,8 @@ def get_hotel_rooms(args: dict) -> str:
         nights=nights,
         adults=adults,
         rooms=rooms,
+        nightly_budget={"amount": f"{stay.nightly_budget:.2f}", "currency": fx.BASE},
+        outside_travel_standard=over_budget,
         room_types=room_rows[:8],
         hint=hint,
     )

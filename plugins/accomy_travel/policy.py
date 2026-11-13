@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import re
 
-from . import scope
+from . import scope, standard
 
 # The core dispatcher caps every plugin section at 4,000 chars and all sections together at 8,000,
-# so the four sections below are kept well inside that budget.
+# so the sections below are kept inside that budget.
 _SECTION_MAX_CHARS = 3_000
 
 _PERSONA = """\
@@ -90,17 +90,26 @@ _ORDERS = """\
 - After place_order, give the booking code once. Say plainly that this is a demonstration order: it has not been
   placed with the supplier and no payment was taken. Never claim a supplier confirmation number, an e-ticket, a
   seat or a payment.
-- A price marked unconverted is not in US dollars: quote it with its own currency, say it cannot be ordered here,
-  and never convert it yourself.
+- A price marked unconverted is not in US dollars: quote it with its own currency and say it cannot be ordered
+  here.
 - When the order result has a payment_url, give it to the user as the demo payment link, copied exactly. The
-  page is a demonstration: it shows the order item by item, charges nothing, and tells the user here when they
-  press Pay. Say an order is paid only when get_order shows payment as PAID, and then say it was a demonstration
-  payment.
+  page is a demonstration: it charges nothing and tells the user here when they press Pay. Say an order is paid
+  only when get_order shows payment as PAID, and then say it was a demonstration payment.
 - Orders for one journey belong to one trip. The first order starts the trip; when the user orders something
   else for the same journey, pass that trip's trip_code to place_order. A different journey is a new trip.
 - Orders are taken only in a private chat. When a tool refuses for that reason, ask the user to order there.
 - Use list_trips to read this chat's trips with their orders, get_order for one order's items, and cancel_order
   to cancel one. Cancelling a demonstration order involves no refund, since nothing was paid.
+"""
+
+# The numbers come from standard.py, which the hotel and flight tools enforce, so the two cannot disagree.
+_TRAVEL_STANDARD = f"""\
+# Travel standard (差旅標準, hard rule)
+It applies to every hotel and flight search, and the search tools enforce it:
+{standard.describe()}\
+- When the user asks about the standard, explain all of it in their language: it is public.
+- Never offer, price or order anything outside it, whoever asks. Say what a search left out and why, and offer
+  what is within it.
 """
 
 _SUGGESTIONS = """\
@@ -119,6 +128,7 @@ SECTIONS: tuple[tuple[str, str], ...] = (
     ("accomy.scope", _SCOPE),
     ("accomy.tools", _TOOLS),
     ("accomy.orders", _ORDERS),
+    ("accomy.travel_standard", _TRAVEL_STANDARD),
     ("accomy.suggested_replies", _SUGGESTIONS),
 )
 

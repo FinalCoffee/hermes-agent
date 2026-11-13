@@ -213,11 +213,12 @@ def test_results_are_sorted_cheapest_first_and_capped(monkeypatch):
 
     body = json.loads(tools_flights.search_flights(_search_args(max_results=2)))
 
-    prices = [Decimal(flight["price"]["amount"]) for flight in body["flights"]]
-    expected = sorted(Decimal(str(offer["totalSalePrice"])) for _flight, offer in _fixture_offers())[:2]
-    assert prices == expected
+    prices = sorted(Decimal(str(offer["totalSalePrice"])) for _flight, offer in _fixture_offers())
+    assert [Decimal(flight["price"]["amount"]) for flight in body["flights"]] == prices[:2]
     assert len(body["flights"]) == 2
-    assert body["total_offers"] == len(_fixture_offers())
+    # The fixture's dearest fare (851) is more than 70% above its cheapest (405), so the travel standard drops it.
+    assert body["total_offers"] == len(prices) - 1
+    assert body["outside_travel_standard"] == 1
 
 
 def test_duration_sort_orders_by_flight_time(monkeypatch):
@@ -386,7 +387,7 @@ def test_quote_ids_expire_after_thirty_minutes(monkeypatch):
 
 def test_verify_renders_live_price_rules_and_a_price_change(monkeypatch):
     verify = copy.deepcopy(_fixture("tmc_flight_verify.json")["data"])
-    verify["offerData"]["totalSalePrice"] = 900
+    verify["offerData"]["totalSalePrice"] = 500
     _install(monkeypatch, {("POST", VERIFY_PATH): (200, {"code": "0", "data": verify})})
     searched = json.loads(tools_flights.search_flights(_search_args(max_results=1)))[
         "flights"
@@ -396,7 +397,7 @@ def test_verify_renders_live_price_rules_and_a_price_change(monkeypatch):
         tools_flights.get_flight_offer({"quote_id": searched["quote_id"]})
     )
 
-    assert body["price"] == {"amount": "900.00", "currency": "USD"}
+    assert body["price"] == {"amount": "500.00", "currency": "USD"}
     assert body["searched_price"]["amount"] == searched["price"]["amount"]
     assert "price changed" in body["hint"]
     windows = {(item["when"], item["fee"]["amount"]) for item in body["refund_rules"]}

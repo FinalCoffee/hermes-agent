@@ -1,7 +1,7 @@
 """Flight search, airport lookup and live fare pricing on the TMC open platform, in US dollars.
 
 Nothing here calls an order endpoint. A fare that search returns is remembered as a quote (see quotes.py), which is
-what place_order can book.
+what place_order can book. Search shows only fares within the travel standard (standard.py), so only those get one.
 
 Round trips are not offered. TMC's round-trip search (tripType 2) returns one-leg offers, and pairing the legs
 needs a staged journeyId protocol whose final step is not proven on this account. Callers search each direction.
@@ -9,13 +9,13 @@ needs a staged journeyId protocol whose final step is not proven on this account
 
 from __future__ import annotations
 
-import dataclasses
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
-from . import _common, fx, quotes, tmc_client
+from . import _common, fx, quotes, standard, tmc_client
 from ._common import ApiError, ToolSpec, clean_text
 
 _TMC_ENV = (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV)
@@ -27,6 +27,9 @@ _CARRIER_RE = re.compile(r"[A-Z0-9]{2,3}")
 _FLIGHT_NO_RE = re.compile(r"[A-Z0-9]{2,8}")
 _AIRPORT_RE = re.compile(r"[A-Z]{3}")
 _CABIN_MAX = 20
+# The supplier's cabin names, without case, spaces, hyphens and underscores ("premium_economy", "PremiumEconomy").
+_CABIN_SEPARATORS_RE = re.compile(r"[\s_-]")
+_CABIN_BY_KEY = {"economy": "economy", "premiumeconomy": "premium_economy", "business": "business"}
 # Verify answers for a fare the supplier no longer sells at that price.
 _STALE_OFFER_CODES = frozenset({"verify_price_failed", "verify_price_expired"})
 _SORTS = ("price", "duration", "departure")
@@ -77,6 +80,31 @@ def _minutes(duration: str) -> int:
     if not match:
         return 0
     return int(match.group(1) or 0) * 60 + int(match.group(2) or 0)
+
+
+def _flying_minutes(journey: dict, segments: dict) -> int | None:
+    """Time in the air: the flights' own durations added up, so the time on the ground at a stop is not counted.
+    None when the supplier gives no duration for one of the flights."""
+    total = 0
+    for sid in journey.get("airSegmentList") or []:
+        seg = segments.get(sid) if isinstance(sid, str) else None
+        minutes = _minutes("".join(str((seg or {}).get("flightDuration") or "").split()))
+        if not minutes:
+            return None
+        total += minutes
+    return total or None
+
+
+def _hours_minutes(minutes: int) -> str:
+    hours, rest = divmod(minutes, 60)
+    return f"{hours}h{rest}m" if rest else f"{hours}h"
+
+
+def _cabins(offer: dict, searched: str) -> set[str]:
+    """The cabin classes an offer is sold in, one per flight; the searched cabin when the supplier names none.
+    A name outside the standard's cabins (first class) is kept as it is, so the standard refuses it."""
+    named = [str(value) for value in offer.get("cabinClass") or [] if value]
+    return {_CABIN_BY_KEY.get(_CABIN_SEPARATORS_RE.sub("", name.lower()), name) for name in named} or {searched}
 
 
 def _as_list(value: Any) -> list[dict]:
@@ -142,7 +170,7 @@ def _segment(segments: dict, segment_id: str) -> dict:
     )
 
 
-def _offer_row(flight: dict, offer: dict, segments: dict) -> dict:
+def _offer_row(flight: dict, offer: dict, segments: dict, flying: int | None) -> dict:
     journey = _as_list(flight.get("journeys"))[0]
     price = fx.display(_common.supplier_amount(offer.get("totalSalePrice")), offer.get("currency") or "")
     return _common.compact(
@@ -161,6 +189,7 @@ def _offer_row(flight: dict, offer: dict, segments: dict) -> dict:
                 ),
             },
             "duration": "".join(str(journey.get("journeysTime") or "").split()) or None,
+            "flying_time": _hours_minutes(flying) if flying else None,
             "stops": journey.get("transferCount"),
             "segments": [
                 _segment(segments, sid)
@@ -226,13 +255,14 @@ def _search_body(origin: str,
     depart: str,
     adults: int,
     direct_only: bool,
+    cabin: str,
 ) -> dict:
     origin_type, origin_country = _resolve_code(origin, "origin")
     destination_type, destination_country = _resolve_code(destination, "destination")
     # A country the supplier does not list is sent as international. Domestic routes need a listed country.
     international = 0 if origin_country and origin_country == destination_country else 1
     return {
-        "cabinClass": "economy",
+        "cabinClass": cabin,
         "tripType": 1,
         "adultNum": adults,
         "childNum": 0,
@@ -255,10 +285,12 @@ def _search_schema() -> dict:
     return {
         "name": "search_flights",
         "description": (
-            "Search one-way economy flights between two airports or cities on one date, with prices in US dollars; "
+            "Search one-way flights between two airports or cities on one date, with prices in US dollars; "
             "converted prices are approximate. Returns up to max_results offers sorted by price (default), duration "
-            "or departure, each with a quote_id, price, airline, local times, stops, segments and baggage. Only an "
-            "offer with a quote_id can be booked with place_order. Pass a quote_id to get_flight_offer for the live "
+            "or departure, each with a quote_id, price, cabin, airline, local times, flying_time, stops, segments "
+            "and baggage. Only offers within the travel standard are returned: outside_travel_standard counts the "
+            "ones left out, and fare_limit is the dearest fare the standard allows in this search. Only an offer "
+            "with a quote_id can be booked with place_order. Pass a quote_id to get_flight_offer for the live "
             "price and refund and change rules. Round trips are not supported: search each direction separately."
         ),
         "parameters": {
@@ -280,6 +312,15 @@ def _search_schema() -> dict:
                     "type": "integer",
                     "description": "Adult passengers, 1-9 (default 1).",
                 },
+                "cabin": {
+                    "type": "string",
+                    "enum": list(standard.CABINS),
+                    "description": (
+                        "Cabin class (default economy). premium_economy and business are within the travel "
+                        f"standard only on flights with {standard.PREMIUM_CABIN_MIN_HOURS} hours of flying time "
+                        "or more; search them only when the user asks for that cabin."
+                    ),
+                },
                 "direct_only": {
                     "type": "boolean",
                     "description": "Only non-stop flights (default false).",
@@ -299,6 +340,77 @@ def _search_schema() -> dict:
     }
 
 
+@dataclass(frozen=True)
+class _Offer:
+    """One fare on sale, with what the travel standard judges it by."""
+
+    row: dict
+    fare: quotes.FlightFare | None
+    flying: int | None
+    cabins: frozenset[str]
+
+    @property
+    def usd(self) -> Decimal | None:
+        """The fare in US dollars; None when it has no rate, which the fare rule cannot judge."""
+        price = self.row["price"]
+        return None if price.get("unconverted") else Decimal(price["amount"])
+
+
+def _offers(data: dict, adults: int, cabin: str) -> list[_Offer]:
+    """Every fare the supplier sells for the search, before the travel standard is applied."""
+    segments = data.get("segments") if isinstance(data.get("segments"), dict) else {}
+    offers = []
+    for flight in _as_list(data.get("flight")):
+        if flight.get("policyBlocked") or not _as_list(flight.get("journeys")):
+            continue
+        flying = _flying_minutes(_as_list(flight.get("journeys"))[0], segments)
+        for offer in _as_list(flight.get("offerPriceList")):
+            if _common.supplier_amount(offer.get("totalSalePrice")) is None or not offer.get("priceKey"):
+                continue
+            if (offer.get("salesLimit") or {}).get("ageLimit"):
+                continue  # an age-restricted fare cannot be sold to any traveller the model can name
+            offers.append(_Offer(
+                row=_offer_row(flight, offer, segments, flying),
+                fare=_fare(flight, offer, segments, adults, offer["priceKey"]),
+                flying=flying,
+                cabins=_cabins(offer, cabin),
+            ))
+    return offers
+
+
+def _within_standard(offers: list[_Offer]) -> tuple[list[_Offer], Decimal | None]:
+    """The offers the travel standard allows, and the dearest fare it allows among them: first the cabin rule
+    by flying time, then the fare rule against the cheapest fare that is left."""
+    in_cabin = [offer for offer in offers if all(standard.cabin_allowed(c, offer.flying) for c in offer.cabins)]
+    prices = [offer.usd for offer in in_cabin if offer.usd is not None]
+    if not prices:
+        return in_cabin, None
+    limit = standard.fare_limit(min(prices))
+    return [offer for offer in in_cabin if offer.usd is None or offer.usd <= limit], limit
+
+
+def _search_hint(found: int, within: int, cabin: str) -> str:
+    if within:
+        hint = (
+            "Only offers with a quote_id can be booked. Pass one to get_flight_offer for the live price and rules "
+            "before quoting a fare. Quote ids expire after 30 minutes."
+        )
+        if found > within:
+            hint += (
+                f" {found - within} offers outside the travel standard were left out: tell the user how many "
+                "and why."
+            )
+        return hint
+    if not found:
+        return "No flights are on sale for this route and date. Try nearby dates or nearby airports."
+    if cabin != standard.ECONOMY:
+        return (
+            f"Every {cabin} fare found is outside the travel standard: that cabin needs "
+            f"{standard.PREMIUM_CABIN_MIN_HOURS} hours of flying time or more. Tell the user, and search economy."
+        )
+    return "Flights are on sale, but none is within the travel standard. Tell the user, and try other dates."
+
+
 @_common.tool_handler
 def search_flights(args: dict) -> str:
     origin, destination = _iata_arg(args, "origin"), _iata_arg(args, "destination")
@@ -306,46 +418,40 @@ def search_flights(args: dict) -> str:
         raise ValueError("origin and destination must differ.")
     depart = _depart_date(args)
     adults = _int_arg(args, "adults", 1, 1, _MAX_ADULTS)
+    cabin = str(args.get("cabin") or standard.ECONOMY)
+    if cabin not in standard.CABINS:
+        raise ValueError(
+            f"cabin must be one of: {', '.join(standard.CABINS)}. First class is outside the travel standard."
+        )
     direct_only = bool(args.get("direct_only", False))
     sort = str(args.get("sort") or "price")
     if sort not in _SORTS:
         raise ValueError(f"sort must be one of: {', '.join(_SORTS)}.")
     max_results = _int_arg(args, "max_results", 5, 1, 10)
 
-    body = _search_body(origin, destination, depart, adults, direct_only)
-    data = tmc_client.flight_search(body)
-    segments = data.get("segments") if isinstance(data.get("segments"), dict) else {}
-    priced = []
-    for flight in _as_list(data.get("flight")):
-        if flight.get("policyBlocked") or not _as_list(flight.get("journeys")):
-            continue
-        for offer in _as_list(flight.get("offerPriceList")):
-            if _common.supplier_amount(offer.get("totalSalePrice")) is None or not offer.get("priceKey"):
-                continue
-            if (offer.get("salesLimit") or {}).get("ageLimit"):
-                continue  # an age-restricted fare cannot be sold to any traveller the model can name
-            fare = _fare(flight, offer, segments, adults, offer["priceKey"])
-            priced.append((_offer_row(flight, offer, segments), fare))
-    priced.sort(key=lambda pair: _SORT_KEYS[sort](pair[0]))
+    body = _search_body(origin, destination, depart, adults, direct_only, cabin)
+    offers = _offers(tmc_client.flight_search(body), adults, cabin)
+    within, limit = _within_standard(offers)
+    within.sort(key=lambda offer: _SORT_KEYS[sort](offer.row))
     shown = []
-    for row, fare in priced[:max_results]:
-        if fare is not None:
-            row["quote_id"] = quotes.remember(quotes.FLIGHT, fare)
-        shown.append(row)
-    hint = (
-        "Only offers with a quote_id can be booked. Pass one to get_flight_offer for the live price and rules "
-        "before quoting a fare. Quote ids expire after 30 minutes."
-        if shown
-        else "No flights are on sale for this route and date. Try nearby dates or nearby airports."
-    )
-    return _common.ok(
-        note=_NOTE,
-        route=f"{origin}-{destination}",
-        depart_date=depart,
-        total_offers=len(priced),
-        flights=shown,
-        hint=hint,
-    )
+    for offer in within[:max_results]:
+        if offer.fare is not None:
+            # The limit goes with the quote: a fare that verifies above it later is outside the standard too.
+            offer.row["quote_id"] = quotes.remember(quotes.FLIGHT, replace(offer.fare, fare_limit=limit))
+        shown.append(offer.row)
+    result = {
+        "note": _NOTE,
+        "route": f"{origin}-{destination}",
+        "depart_date": depart,
+        "cabin": cabin,
+        "total_offers": len(within),
+        "outside_travel_standard": len(offers) - len(within),
+        "flights": shown,
+        "hint": _search_hint(len(offers), len(within), cabin),
+    }
+    if limit is not None:
+        result["fare_limit"] = {"amount": f"{limit:.2f}", "currency": fx.BASE}
+    return _common.ok(**result)
 
 
 def _airports_schema() -> dict:
@@ -492,14 +598,19 @@ def get_flight_offer(args: dict) -> str:
     price = fx.display(source, currency)
     verified = fx.to_usd(source, currency)
     changed = verified is None or verified.amount != fare.total.amount
+    # A fare that now costs more than its search's limit is outside the travel standard, so its quote goes.
+    over_limit = verified is not None and fare.fare_limit is not None and verified.amount > fare.fare_limit
     if changed:
         # An order pays the price the user was last shown; a price with no rate cannot be ordered at all.
-        quotes.reprice(quote_id, None if verified is None else dataclasses.replace(fare, total=verified))
+        orderable = verified is not None and not over_limit
+        quotes.reprice(quote_id, replace(fare, total=verified) if orderable else None)
     result = _common.compact(
         {
-            "quote_id": quote_id,
+            "quote_id": None if over_limit else quote_id,
             "price": price,
             "searched_price": fare.total.as_money() if changed else None,
+            "fare_limit": {"amount": f"{fare.fare_limit:.2f}", "currency": fx.BASE} if over_limit else None,
+            "outside_travel_standard": over_limit or None,
             "journeys": _verify_journeys(data.get("journeys")),
             "baggage": _baggage(offer.get("baggageRules")),
             "refund_rules": _rule_lines(offer.get("refundRules"), currency),
@@ -507,15 +618,16 @@ def get_flight_offer(args: dict) -> str:
             "booking_notice": clean_text(data.get("bookingNotice"), 600),
         }
     )
-    return _common.ok(
-        note=_NOTE,
-        **result,
-        hint=(
-            "The price changed since search: quote the current price, which is what an order now costs."
-            if changed
-            else "Prices and rules are live from the supplier. Converted prices are approximate."
-        ),
-    )
+    if over_limit:
+        hint = (
+            "This fare now costs more than the travel standard allows for its search (fare_limit), so it can no "
+            "longer be ordered. Tell the user, and search flights again."
+        )
+    elif changed:
+        hint = "The price changed since search: quote the current price, which is what an order now costs."
+    else:
+        hint = "Prices and rules are live from the supplier. Converted prices are approximate."
+    return _common.ok(note=_NOTE, **result, hint=hint)
 
 
 TOOLS = (

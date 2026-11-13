@@ -75,6 +75,8 @@ class FlightFare:
     adults: int
     total: Converted
     price_key: str
+    # The dearest fare the travel standard allowed in the search that showed this one (standard.fare_limit).
+    fare_limit: Decimal | None = None
 
 
 @dataclass(frozen=True)

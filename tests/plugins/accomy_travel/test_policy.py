@@ -4,7 +4,7 @@ import pytest
 
 from gateway.suggested_replies import split_suggestions
 from hermes_cli.plugins_dispatch import format_system_prompt_sections
-from plugins.accomy_travel import policy
+from plugins.accomy_travel import policy, standard
 
 SECTION_IDS = [section_id for section_id, _ in policy.SECTIONS]
 ZH_OPTIONS = ("幫我規劃行程", "找飯店", "找機票", "找活動門票")
@@ -54,6 +54,17 @@ def test_tools_section_keeps_hotel_and_flight_search_on_accomys_own_tools():
     section = dict(policy.SECTIONS)["accomy.tools"]
     assert "Hotels and flights come only from Accomy's own search" in section
     assert "Never use research_web" in section
+
+
+def test_travel_standard_section_states_the_limits_the_tools_enforce():
+    section = dict(policy.SECTIONS)["accomy.travel_standard"]
+    limits = (
+        standard.HOTEL_NIGHTLY_BUDGET, standard.HOTEL_CITY_NIGHTLY_BUDGET, *standard.HOTEL_BUDGET_CITIES.values(),
+        f"{standard.PREMIUM_CABIN_MIN_HOURS} hours", f"{standard.FARE_BUDGET_PERCENTAGE}%",
+        "premium economy or business", "Never first class",
+    )
+    assert [str(limit) for limit in limits if str(limit) not in section] == []
+    assert "explain all of it in their language" in section
 
 
 def test_orders_section_requires_a_summary_and_an_explicit_yes_before_placing():

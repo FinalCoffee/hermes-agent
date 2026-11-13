@@ -18,7 +18,7 @@ adds have their own documents:
 | Branch | What it is |
 |---|---|
 | `main` | Upstream Hermes Agent, unmodified. It is the base the fork is measured against |
-| `develop` | The fork: `main` plus the commits below |
+| `develop` | The fork: `main` plus the commits below. Work is committed here and pushed to `origin` |
 
 The numbers in this document were taken at commit `cbe3896c0b`. To take them again:
 
@@ -167,7 +167,7 @@ Everything else behaves as upstream does until a key is set. These three effects
 |---|---|
 | `plugins/accomy_travel/` | The plugin: 16 model tools (12 for search, 4 for orders), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard |
 | `distributions/accomy/` | The operator profile: the model gets only the plugin's tools, attachments are refused, operator details are hidden, and the gateway messages an end user can reach are reworded or blanked |
-| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, and a demo payment page on AWS Lambda |
+| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda |
 | `tests/plugins/accomy_travel/` | 23 test files and 16 fixtures trimmed from real supplier answers |
 
 Three properties of the plugin matter to anyone who changes it:
@@ -260,7 +260,9 @@ python scripts/check
 The order tests in `tests/plugins/accomy_travel/` need a local PostgreSQL container and are skipped without
 it. The command that starts it is at the top of `tests/plugins/accomy_travel/test_orderstore.py`.
 
-A running bot is built from an image, so it changes only after `deploy/accomy/build-image.sh` and a restart.
+The bot runs on an AWS EC2 instance from an image, so it changes only after a commit, a new image and the
+bootstrap run again on the instance. `deploy/accomy/README.md` has that procedure under "Operating the
+instance".
 
 ## Rules for work on the fork
 

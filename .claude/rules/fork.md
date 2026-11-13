@@ -27,6 +27,15 @@ without it, like this file, loads in every session.
 
 `FORK.md` is the full account: every upstream file the fork changed, why, and how to bring in new upstream work.
 
+## Where the bot runs
+
+The bot is live on one AWS EC2 instance (Name tag `dev-accomy-bot`), set up by `deploy/accomy/`. The checkout
+is not the running bot: a change reaches users only after a commit, a new image and the bootstrap run again
+on the instance. `deploy/accomy/ec2-run.sh '<command>'` runs a command there through Systems Manager, and
+`.claude/rules/accomy-deploy.md` says how to look at the deployment and what needs the user's word first.
+The AWS profile name, the account id, the instance id and its addresses are kept out of this public
+repository: ask the user for the profile.
+
 ## Rules for fork work
 
 - **Keep the difference from upstream small.** New behaviour belongs in `plugins/accomy_travel/` or

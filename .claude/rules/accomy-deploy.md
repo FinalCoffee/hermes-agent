@@ -44,8 +44,46 @@ The profile is for end users who are not the operator. These settings carry that
 | `build-image.sh` | Builds the image from a snapshot of the checkout |
 | `seed-secrets.sh` | Streams a `.env` into the data volume without printing it |
 | `watch.sh` | Follows the bot's conversations, read-only |
-| `ec2-bootstrap.sh` | Sets up an EC2 host. It has not run on a real instance yet |
+| `ec2-bootstrap.sh` | Sets up an EC2 host: Docker, the image, the secrets, the stack. Run once for real; a second run, for a new build, has not been exercised |
+| `ec2-run.sh` | Runs one command on the EC2 host through Systems Manager and prints its output |
 | `payment-demo/` | The demo payment page: one AWS Lambda, an HTTP API and a DynamoDB table |
+
+## The deployment that is running
+
+The bot runs on one AWS EC2 instance set up by this directory, not on a developer's machine. Start here when
+a task touches the running bot:
+
+- **Find it.** The instance carries the Name tag `dev-accomy-bot`. It is in a private subnet with no public
+  address and no inbound rule, so Systems Manager is the only way in. `deploy/accomy/ec2-run.sh '<command>'`
+  finds it by the tag and runs the command as root. It needs `AWS_PROFILE` and `AWS_REGION`. The region is
+  the one in the README's commands. The profile name, the account and the instance id are not recorded in
+  this public repository: ask the user, or read them from your private notes about this project.
+- **Look before you act.** `ec2-run.sh 'cd /opt/accomy && docker compose ps'` shows the containers (the bot,
+  the proxy, and the database relay when the order store is set up), and
+  `ec2-run.sh 'cd /opt/accomy && docker compose logs --since 15m bot | tail -n 80'` shows what the bot is
+  doing. The README section "Operating the instance" has the rest: what to check when the bot does not
+  answer, resource use, the order store, a restart, shipping a build, changing a secret, removing everything.
+- **Where things are.** The image is in the ECR repository `accomy-hermes` under an immutable tag per commit
+  (`poc-<commit>`). The profile's `.env` is the encrypted parameter `/accomy/bot/env`. On the instance the
+  stack is the Compose project `accomy` in `/opt/accomy`. `/opt/accomy/.env` holds that host's settings and
+  no secret: the image, the database host, the limits, the name of the secrets parameter and whether the bot
+  is open to everyone. The secrets, the conversations and the bot's logs are in the Docker volume
+  `accomy_data`. The bot reads its secrets from that volume, so a changed parameter does nothing until it is
+  seeded and the bot restarted.
+- **The checkout is not the bot.** A change to code, the profile or this directory reaches users only after a
+  commit, a new image pushed under that commit's tag, and the bootstrap run again on the instance.
+- **No other poller.** Any Compose stack of this bot on a developer's machine stays stopped: it holds the same
+  Telegram token, and two pollers split the messages between them. Never start one to test something. A real
+  conversation for a test needs another bot's token, in a throwaway Compose project.
+- **Ask before you change it.** A restart, a new build, a changed secret, a resized or stopped instance and
+  any new AWS resource all change a service people are using, in an account that is not yours. Read-only
+  commands need no permission; everything else needs the user's word first.
+- **AWS keeps every command.** Systems Manager stores the command text and its output. Never send a secret in
+  a command, and never run one that prints a secret, such as a `cat` of the `.env` or a dump of a container's
+  environment, or a customer's details. List variable names with `cut -d= -f1` when you need to know what is
+  set, and compare a value by its hash, never by printing it.
+- **zsh and colons.** In zsh, `$ACCOUNT:repository` is the variable with a modifier applied, not the variable
+  followed by text. Write `${ACCOUNT}:repository` in any command that builds an ARN.
 
 Keep these true:
 

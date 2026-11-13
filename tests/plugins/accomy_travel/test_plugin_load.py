@@ -12,6 +12,7 @@ import pytest
 import plugins.accomy_travel as package
 from model_tools import get_tool_definitions
 from plugins.accomy_travel import (
+    tools_attachments,
     tools_events,
     tools_flights,
     tools_hotels,
@@ -29,7 +30,8 @@ SECRETS = (
     "BRAVE_SEARCH_API_KEY",
     "ACCOMY_DATABASE_URL",
 )
-TOOL_MODULES = (tools_places, tools_hotels, tools_flights, tools_events, tools_research, tools_orders)
+TOOL_MODULES = (
+    tools_places, tools_hotels, tools_flights, tools_events, tools_research, tools_orders, tools_attachments)
 TOOLSET = "accomy_travel"
 
 
@@ -80,8 +82,9 @@ def test_all_secrets_present_expose_every_exported_tool(accomy_manager, secrets_
     assert _visible_names() == _exported_names()
 
 
-def test_missing_secrets_hide_every_tool(accomy_manager, secrets_unset):
-    assert _visible_names() == set()
+def test_missing_secrets_hide_every_tool_that_needs_one(accomy_manager, secrets_unset):
+    assert _visible_names() == {spec.name for spec in _exported_specs() if not spec.requires_env}
+    assert _visible_names() == {"read_attachment"}
 
 
 @pytest.mark.parametrize("missing", SECRETS)

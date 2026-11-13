@@ -2635,6 +2635,7 @@ test = [
     { name = "anthropic" },
     { name = "asyncpg" },
     { name = "distlib", marker = "sys_platform == 'win32'" },
+    { name = "pypdf" },
 ]
 
 [package.metadata]
@@ -2825,6 +2826,7 @@ test = [
     { name = "anthropic", specifier = "==0.125.0" },
     { name = "asyncpg", specifier = "==0.32.0" },
     { name = "distlib", marker = "sys_platform == 'win32'", specifier = "==0.4.4" },
+    { name = "pypdf", specifier = "==6.21.4" },
 ]
 
 [[package]]

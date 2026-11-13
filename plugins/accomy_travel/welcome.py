@@ -26,12 +26,14 @@ _REPLIES: dict[str, dict[str, Reply]] = {
         "start": Reply(
             "您好，我是 Accomy 旅遊助理 ✈️\n"
             "我可以幫您規劃行程、比較飯店與機票、查詢賽事與演出門票、景點與天氣，也可以替您下訂單。\n"
+            "您可以打字、傳語音訊息，或傳照片與檔案（例如訂位確認、行程表）給我。\n"
             "告訴我您想去哪裡、什麼時候出發吧！",
             ("規劃東京五天行程", "找台北飛大阪的機票", "這週末有什麼活動", "差旅標準是什麼？"),
         ),
         "help": Reply(
             "我可以幫您規劃行程、比較飯店與機票、查詢賽事與演出門票、景點與天氣，也可以替您下訂單。\n"
-            "飯店與機票都依差旅標準篩選，想知道內容可以直接問我「差旅標準是什麼」。\n\n"
+            "飯店與機票都依差旅標準篩選，想知道內容可以直接問我「差旅標準是什麼」。\n"
+            "除了打字，也可以傳語音訊息、照片或檔案（PDF、Word、Excel 等）給我。\n\n"
             "/new 開始新的對話\n"
             "/stop 停止目前的回覆\n"
             "/help 再看一次這段說明",
@@ -42,6 +44,7 @@ _REPLIES: dict[str, dict[str, Reply]] = {
             "Hello, I'm the Accomy travel assistant ✈️\n"
             "I can plan your itinerary, compare hotels and flights, find sports and event tickets, "
             "attractions and weather, and place bookings for you.\n"
+            "You can type, send a voice message, or send me a photo or a file such as a booking confirmation.\n"
             "Tell me where you'd like to go and when you'd like to leave!",
             ("Plan a 5-day trip to Tokyo", "Find flights from Taipei to Osaka", "What events are on this weekend",
              "What is the travel standard?"),
@@ -49,7 +52,8 @@ _REPLIES: dict[str, dict[str, Reply]] = {
         "help": Reply(
             "I can plan your itinerary, compare hotels and flights, find sports and event tickets, "
             "attractions and weather, and place bookings for you.\n"
-            "Hotels and flights follow the travel standard: ask me \"What is the travel standard?\" to see it.\n\n"
+            "Hotels and flights follow the travel standard: ask me \"What is the travel standard?\" to see it.\n"
+            "Besides typing, you can send a voice message, a photo or a file (PDF, Word, Excel and more).\n\n"
             "/new starts a fresh conversation\n"
             "/stop stops the current answer\n"
             "/help shows this message again",

@@ -16,7 +16,10 @@ providers:
     api_mode: codex_responses
     discover_models: false
     models:
-      gpt-6.1-sol: {}
+      # The model reads pictures. No catalog says so for a custom endpoint, and without this line a photo is
+      # first described by a separate vision call and reaches the model as text (agent/image_routing.py).
+      gpt-6.1-sol:
+        supports_vision: true
 
 agent:
   reasoning_effort: "medium"
@@ -53,9 +56,15 @@ plugins:
         # Where the demo payment page is served (deploy/accomy/payment-demo). A confirmed order carries a link
         # to it when ACCOMY_PAYMENT_LINK_SECRET is set as well. Empty: orders carry no payment link.
         payment_url: "https://5c8l8j74j4.execute-api.ap-southeast-1.amazonaws.com"
+        # Speech-to-text for voice notes, audio files and videos (plugins/accomy_travel/speech.py): the AWS
+        # region whose Amazon Transcribe is used, and the languages it chooses from, the likeliest first and
+        # one dialect per language. Needs ACCOMY_TRANSCRIBE_ACCESS_KEY_ID and ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY.
+        # The proxy allows one Transcribe host (deploy/accomy/squid.conf): change the region there too.
+        transcribe_region: ap-southeast-1
+        transcribe_languages: [zh-TW, en-US, ja-JP, ko-KR]
 
-# The plugin's 12 search tools, plus the four order tools when ACCOMY_DATABASE_URL is set. no_mcp stops globally
-# enabled mcp_servers from joining (tools_config.py:747).
+# The plugin's 12 search tools and read_attachment, plus the four order tools when ACCOMY_DATABASE_URL is set.
+# no_mcp stops globally enabled mcp_servers from joining (tools_config.py:747).
 platform_toolsets:
   telegram:
     - accomy_travel
@@ -97,8 +106,13 @@ updates:
 checkpoints:
   enabled: false
 
+# A voice note is transcribed before the turn by the plugin's provider, Amazon Transcribe
+# (gateway/run_inbound_transcription.py, plugins/accomy_travel/speech.py). The provider does not read
+# stt.language: Transcribe chooses among transcribe_languages above. The sender is shown what was heard.
 stt:
-  enabled: false
+  enabled: true
+  provider: accomy-transcribe
+  echo_transcripts: true
 
 telemetry:
   shared_metrics:
@@ -159,8 +173,10 @@ telegram:
   suggested_replies: true
   require_mention: true
   reactions: false
-  # Text only: photos, stickers, files and voice notes are not downloaded and reach no vision model.
-  accept_attachments: false
+  # Photos, voice notes and files are downloaded into the gateway's media cache. The model sees a photo,
+  # a voice note arrives as text, and a file is read on request by read_attachment. The plugin's inbound gate
+  # limits files per sender and per day (plugins/accomy_travel/attachments.py).
+  accept_attachments: true
   # Fail-closed owner placeholder: slash gating turns on only when an admin list is non-empty, and "0"
   # matches no Telegram user, so every sender gets only /help, /whoami and the list below.
   # Replace "0" with the owner's numeric Telegram ID (see the plugin README).

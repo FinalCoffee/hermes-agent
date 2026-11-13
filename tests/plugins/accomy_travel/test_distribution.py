@@ -38,6 +38,8 @@ REQUIRED_ENV_NAMES = {
     "BRAVE_SEARCH_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_ALLOWED_USERS",
+    "ACCOMY_TRANSCRIBE_ACCESS_KEY_ID",
+    "ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY",
 }
 FORBIDDEN_TOOLS = {
     "terminal",
@@ -116,12 +118,12 @@ def test_telegram_surface_is_exactly_the_travel_and_order_tools(dist_home):
     assert not names & FORBIDDEN_TOOLS
 
 
-def test_without_the_order_database_the_twelve_travel_tools_are_the_surface(dist_home, monkeypatch):
+def test_without_the_order_database_the_surface_is_the_twelve_travel_tools_and_the_file_reader(dist_home, monkeypatch):
     monkeypatch.delenv("ACCOMY_DATABASE_URL")
 
     names = _resolved_telegram_tool_names()
 
-    assert len(names) == 12
+    assert len(names) == 13 and "read_attachment" in names
     assert not names & ORDER_TOOLS
 
 
@@ -166,12 +168,62 @@ def test_a_reply_cannot_attach_a_host_file(dist_home, tmp_path, monkeypatch):
     assert validate_media_delivery_path(str(host_file)) is None
 
 
-def test_attachments_are_refused_unread(dist_home):
+def test_attachments_are_downloaded(dist_home):
     from plugins.platforms.telegram import telegram_attachments
 
     telegram = load_gateway_config().platforms[Platform.TELEGRAM]
 
-    assert telegram_attachments.refused(SimpleNamespace(config=telegram))
+    assert not telegram_attachments.refused(SimpleNamespace(config=telegram))
+
+
+def test_a_photo_goes_to_the_model_as_a_picture_with_no_separate_vision_call(dist_home):
+    """Both the gateway (which attaches the picture) and the agent (which would otherwise replace it with a
+    description from a second model call) ask whether the model reads pictures."""
+    from agent.image_routing import _lookup_supports_vision, decide_image_input_mode
+
+    cfg = load_config()
+    model = cfg["model"]["default"]
+
+    assert decide_image_input_mode("custom", model, cfg, requested_provider="newapi") == "native"
+    assert _lookup_supports_vision("custom", model, cfg) is True
+
+
+def test_a_voice_note_is_transcribed_by_the_plugins_provider_and_no_other(dist_home, monkeypatch, tmp_path):
+    """The gateway's own entry point, with the shipped profile: the clip reaches Amazon Transcribe through the
+    plugin (the stream is faked here) and no built-in provider, whose hosts the proxy would refuse anyway."""
+    from agent.transcription_registry import get_provider
+    from hermes_cli.plugins import _ensure_plugins_discovered
+    from tools.transcription_tools import transcribe_audio
+
+    assert load_gateway_config().stt_enabled
+    _ensure_plugins_discovered()
+    # The module the registered provider runs in: discovery loads the plugin under a namespace of its own.
+    speech = type(get_provider("accomy-transcribe")).transcribe.__globals__
+    monkeypatch.setenv(speech["ACCESS_KEY_ENV"], "TESTKEYID")
+    monkeypatch.setenv(speech["SECRET_KEY_ENV"], "test-secret")
+    monkeypatch.setitem(speech, "_pcm", lambda _path: (b"\x00" * (4 * speech["_BYTES_PER_SECOND"]), False))
+    streamed = []
+    monkeypatch.setitem(speech, "_stream", lambda pcm, query: streamed.append(query) or ("找下週五飛東京的機票", "zh-TW"))
+    clip = tmp_path / "audio_0123456789ab.ogg"
+    clip.write_bytes(b"OggS" + b"\x00" * 64)
+
+    result = transcribe_audio(str(clip), None, "gateway")
+
+    assert result == {"success": True, "transcript": "找下週五飛東京的機票", "provider": "accomy-transcribe"}
+    assert streamed[0]["language-options"] == "zh-TW,en-US,ja-JP,ko-KR"
+
+
+def test_the_proxy_allows_the_transcribe_host_of_the_profiles_region_and_only_its_streaming_port(dist_home):
+    region = load_config()["plugins"]["entries"]["accomy_travel"]["settings"]["transcribe_region"]
+    rules = [line.split() for line in (REPO / "deploy" / "accomy" / "squid.conf").read_text().splitlines()]
+
+    assert ["acl", "transcribe_host", "dstdomain", f"transcribestreaming.{region}.amazonaws.com"] in rules
+    assert ["acl", "transcribe_port", "port", "8443"] in rules
+    access = [rule for rule in rules if rule[:1] == ["http_access"]]
+    assert access.index(["http_access", "allow", "transcribe_host", "transcribe_port"]) < access.index(
+        ["http_access", "deny", "!https_port"])
+    assert [rule for rule in rules if rule[:2] == ["acl", "bot_hosts"] and "amazonaws.com" in rule[-1]
+            and "transcribe" in rule[-1]] == []
 
 
 def test_members_of_a_group_cannot_disturb_one_another(dist_home):

@@ -1,6 +1,6 @@
 name: accomy
 version: 0.1.0
-description: "Accomy AI Travel: a Telegram travel-planning assistant that searches hotels, flights, events, places, weather and the public web. Prices in US dollars; it takes demonstration orders for hotels, flights and event tickets, which are recorded only: never sent to a supplier, and no payment is taken."
+description: "Accomy AI Travel: a Telegram travel-planning assistant that searches hotels, flights, events, places, weather and the public web, and reads the photos, voice notes and files a user sends. Prices in US dollars; it takes demonstration orders for hotels, flights and event tickets, which are recorded only: never sent to a supplier, and no payment is taken."
 author: Accomy
 license: proprietary
 env_requires:
@@ -26,4 +26,10 @@ env_requires:
     required: false
   - name: ACCOMY_PAYMENT_LINK_SECRET
     description: "Optional key that signs the demo payment links orders carry. The payment page (deploy/accomy/payment-demo) holds the same key."
+    required: false
+  - name: ACCOMY_TRANSCRIBE_ACCESS_KEY_ID
+    description: "Optional access key ID of an AWS identity that may only call transcribe:StartStreamTranscriptionWebSocket. With its secret it turns voice notes, audio files and videos into text (see the plugin README, Attachments)."
+    required: false
+  - name: ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY
+    description: "Optional secret access key of that AWS identity."
     required: false

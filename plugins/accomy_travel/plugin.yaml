@@ -1,6 +1,6 @@
 name: accomy_travel
 version: 0.1.0
-description: "Accomy AI Travel: trip-planning tools (hotels and flights via the TMC open platform, event tickets via Seat Unique, places and weather via Google Maps Platform, public-web research via Brave) priced in US dollars, demonstration orders for hotels, flights and event tickets recorded in the order database (never sent to a supplier), plus the travel-assistant persona, scope policy and suggested-reply instructions."
+description: "Accomy AI Travel: trip-planning tools (hotels and flights via the TMC open platform, event tickets via Seat Unique, places and weather via Google Maps Platform, public-web research via Brave) priced in US dollars, demonstration orders for hotels, flights and event tickets recorded in the order database (never sent to a supplier), reading of files a user sends and speech-to-text for voice notes via Amazon Transcribe, plus the travel-assistant persona, scope policy and suggested-reply instructions."
 author: Accomy
 kind: standalone
 provides_tools:
@@ -20,6 +20,7 @@ provides_tools:
   - list_trips
   - get_order
   - cancel_order
+  - read_attachment
 provides_hooks:
   - pre_gateway_dispatch
   - pre_llm_call
@@ -45,4 +46,10 @@ requires_env:
     secret: true
   - name: ACCOMY_PAYMENT_LINK_SECRET
     description: "Key that signs demo payment links (optional; the payment page in deploy/accomy/payment-demo holds the same key)"
+    secret: true
+  - name: ACCOMY_TRANSCRIBE_ACCESS_KEY_ID
+    description: "Access key ID of an AWS identity allowed only transcribe:StartStreamTranscriptionWebSocket (optional; enables speech-to-text for voice notes, audio files and videos)"
+    secret: true
+  - name: ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY
+    description: "Secret access key of that AWS identity"
     secret: true

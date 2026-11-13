@@ -113,11 +113,12 @@ class RateLimiter:
     def allow(self, key: str, limit: int, window_seconds: float) -> bool:
         return self.admit(((key, limit, window_seconds),)) is None
 
-    def admit(self, checks) -> int | None:
-        """Charge one hit to every ``(key, limit, window_seconds)`` check, or to none of them.
+    def admit(self, checks, cost: int = 1, *, charge: bool = True) -> int | None:
+        """Charge *cost* hits to every ``(key, limit, window_seconds)`` check, or to none of them.
 
-        Returns None when every window admits the hit. Otherwise returns the index of the first refusing
-        check and records nothing, so a turn that one limit refuses never spends from the others.
+        Returns None when every window has room for the whole cost. Otherwise returns the index of the first
+        refusing check and records nothing, so a turn that one limit refuses never spends from the others.
+        With ``charge=False`` nothing is recorded either way: the answer says whether the cost would fit.
         """
         with self._lock:
             now = self._clock()
@@ -128,12 +129,20 @@ class RateLimiter:
                 hits = self._hits.setdefault(key, deque())
                 while hits and now - hits[0] >= window_seconds:
                     hits.popleft()
-                if len(hits) >= limit:
+                if len(hits) + cost > limit:
                     return index
                 queues.append(hits)
-            for hits in queues:
-                hits.append(now)
+            for hits in queues if charge else ():
+                hits.extend([now] * cost)
             return None
+
+    def refund(self, keys, cost: int) -> None:
+        """Take *cost* hits back from every key: what ``admit`` charged for something that then did not happen."""
+        with self._lock:
+            for key in keys:
+                hits = self._hits.get(key)
+                for _ in range(min(cost, len(hits or ()))):
+                    hits.pop()
 
 
 _limiter = RateLimiter()

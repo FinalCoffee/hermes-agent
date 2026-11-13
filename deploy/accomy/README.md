@@ -13,7 +13,7 @@ upstream Hermes.
 |---|---|---|
 | Files | Its image (read-only), the `data` volume, and in-memory scratch space | Every host file except the read-only profile mounts below. No host directory and no Docker socket are mounted |
 | Profile | Reads `config.yaml`, `SOUL.md` and the `locales/` wording | Cannot change them: all three are read-only mounts. The plugin and hook directories of the volume are empty and read-only, so only the image's code is loaded |
-| Network | HTTPS to the hosts listed in `squid.conf`, through the `egress` proxy. With the `db` profile, one PostgreSQL server through the `db` relay | Any other host, bare IP addresses, plain HTTP, the host machine, the LAN, the cloud metadata service |
+| Network | HTTPS to the hosts listed in `squid.conf`, and one port of Amazon Transcribe for speech-to-text, through the `egress` proxy. With the `db` profile, one PostgreSQL server through the `db` relay | Any other host, bare IP addresses, plain HTTP, the host machine, the LAN, the cloud metadata service |
 | Inbound | Nothing. Telegram is long-polled outbound | No port is published |
 | Privilege | The gateway runs as uid 10000 with no capabilities and cannot gain any (`no-new-privileges`). The supervisor above it stays root with six capabilities | Memory, CPU and process limits |
 
@@ -68,6 +68,41 @@ On a Mac the stack stops while the machine sleeps, and Docker Desktop must be ru
 
 Add the new host to `squid.conf` and run `docker compose restart egress`. A host that is not listed fails
 with a network error in the bot and a `DENIED` line in the proxy log.
+
+## Voice notes and files
+
+The profile accepts photos, voice notes and files (`telegram.accept_attachments: true`; the plugin README,
+section "Attachments", says what is read and how). Two things here serve that:
+
+- **The media cache is in the data volume**, under `cache/`. The gateway removes a file after a day, and the
+  plugin deletes the files of a message it drops, and limits files to 1,500 a day across all senders. At
+  Telegram's 20 MB per file that is at most 30 GB: give the volume's disk that much room.
+- **Speech-to-text is Amazon Transcribe.** The bot streams a voice note's audio to
+  `transcribestreaming.<region>.amazonaws.com` on port 8443, the only port Transcribe serves a WebSocket on.
+  `squid.conf` allows that one host on that one port. The region is `transcribe_region` in the profile's
+  `config.yaml`: change the host in `squid.conf` with it.
+
+The bot cannot reach the instance metadata service, so it cannot borrow an instance role. It signs its requests
+with a key pair of its own, `ACCOMY_TRANSCRIBE_ACCESS_KEY_ID` and `ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY` in
+the profile's `.env`. Give that key pair to an IAM user that may do nothing else:
+
+```sh
+cat > transcribe-policy.json <<'POLICY'
+{"Version": "2012-10-17", "Statement": [{
+  "Effect": "Allow", "Action": "transcribe:StartStreamTranscriptionWebSocket", "Resource": "*",
+  "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-southeast-1"}}}]}
+POLICY
+aws iam create-user --user-name dev-accomy-bot-transcribe
+aws iam put-user-policy --user-name dev-accomy-bot-transcribe --policy-name transcribe-streaming \
+    --policy-document file://transcribe-policy.json
+aws iam create-access-key --user-name dev-accomy-bot-transcribe    # prints the key pair once: put it in the .env
+```
+
+Then seed the `.env` again (`./seed-secrets.sh`, or "Changing a secret" below on EC2) and restart the bot.
+Without the key pair the bot still runs: a voice note then reaches the assistant as a recording it could not
+hear, and it asks the user to type. To check speech-to-text on a running bot, send it a voice note and look for
+the proxy's line: `docker compose logs egress | grep transcribestreaming` shows `TCP_TUNNEL/200` for each
+recording. Transcribe bills by the second of audio; the plugin's limit of six hours a day is the ceiling.
 
 ## The order database
 
@@ -222,6 +257,7 @@ volume at 5 MB each.
 | ECR repository `accomy-hermes` | The bot image, one immutable tag per commit: `poc-<commit>` |
 | Parameter Store, `/accomy/bot/env` | The profile's `.env`, encrypted. The only copy of the secrets outside the instance |
 | IAM role and instance profile `accomy-bot-ec2` | Session Manager, pulling that one image, reading that one parameter |
+| IAM user `dev-accomy-bot-transcribe` | Speech-to-text only: one access key, kept in the profile's `.env` (see "Voice notes and files") |
 | Security group `accomy-bot` | No inbound rule. Outbound is open: the proxy in the Compose file is what limits the bot |
 | The instance, Name tag `dev-accomy-bot` | Docker, the Compose plugin, and the stack below |
 | `/opt/accomy` on the instance | This directory as the image carried it, plus `config.yaml`, `SOUL.md` and `locales/` |
@@ -323,6 +359,9 @@ aws iam delete-role-policy --role-name accomy-bot-ec2 --policy-name read-bot-sec
 aws iam detach-role-policy --role-name accomy-bot-ec2 \
     --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 aws iam delete-role --role-name accomy-bot-ec2
+aws iam delete-user-policy --user-name dev-accomy-bot-transcribe --policy-name transcribe-streaming
+aws iam delete-access-key --user-name dev-accomy-bot-transcribe --access-key-id <its key id>
+aws iam delete-user --user-name dev-accomy-bot-transcribe
 aws ssm delete-parameter --name /accomy/bot/env
 aws ecr delete-repository --repository-name accomy-hermes --force
 ```
@@ -336,8 +375,15 @@ stop the instance). One process polls a Telegram token.
 
 - No budget in tokens or money. Set a spend cap on the model key at the provider.
 - The turn and supplier limits are counted in the bot's memory. A restart resets them.
-- Disk. The data volume has no size quota. The bot's log files rotate in normal use, but a compromised bot
-  could fill the disk it shares with Docker: the Docker Desktop disk on a Mac, the instance's root disk on EC2.
+- Disk. The data volume has no size quota. The bot's log files rotate in normal use and the plugin bounds the
+  media cache (see "Voice notes and files"), but a compromised bot could fill the disk it shares with Docker:
+  the Docker Desktop disk on a Mac, the instance's root disk on EC2.
+- Files from strangers. The Telegram adapter downloads an attachment, up to 20 MB, and holds it in memory
+  before the plugin can refuse the message. Documents are parsed in a separate process with a time and a
+  memory limit, and audio is decoded by ffmpeg, both inside the bot container: a flaw in a parser is contained
+  by the container, not by the plugin.
+- What users send stays for a while: a file for a day in the media cache, and the text the model read in the
+  conversation, both in the data volume.
 - Code that already runs as the bot user can change what the volume holds: the `.env`, the conversations, the
   bundled skills. That stays inside the container and its allowed hosts.
 - The allowed hosts are trusted with whatever the bot sends them.

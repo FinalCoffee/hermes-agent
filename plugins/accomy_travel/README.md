@@ -2,6 +2,7 @@
 
 A Telegram travel-planning assistant. It searches hotels, flights, event tickets, places, weather and the
 public web, prices everything in US dollars, and helps the traveller compare options and plan day by day. It
+reads what a traveller sends besides text: photos, voice notes and files. It
 can take **demonstration orders** for hotels, flights and event tickets from a private chat. Those orders are
 recorded in the order database only: nothing is placed with a supplier, no payment is taken, and no supplier
 confirmation number or e-ticket is ever issued.
@@ -10,8 +11,8 @@ The plugin is `plugins/accomy_travel/`. The operator profile is `distributions/a
 
 ## Tools
 
-The twelve search tools and the four order tools sit in the `accomy_travel` toolset. A tool is offered to the
-model only when the secrets it needs are set; the order tools also need `ACCOMY_DATABASE_URL`.
+The twelve search tools, the four order tools and `read_attachment` sit in the `accomy_travel` toolset. A tool
+is offered to the model only when the secrets it needs are set; the order tools also need `ACCOMY_DATABASE_URL`.
 
 | Tool | What it does | Needs |
 |---|---|---|
@@ -31,6 +32,7 @@ model only when the secrets it needs are set; the order tools also need `ACCOMY_
 | `list_trips` | This chat's trips, newest first, each with its orders | `ACCOMY_DATABASE_URL` |
 | `get_order` | One of this chat's orders, with its items | `ACCOMY_DATABASE_URL` |
 | `cancel_order` | Cancels one of this chat's demonstration orders | `ACCOMY_DATABASE_URL` |
+| `read_attachment` | Reads a file the user sent: a document's text, or the words spoken in an audio file or a video | nothing; speech needs the two `ACCOMY_TRANSCRIBE_` keys |
 
 Directions are not a tool. The assistant gives Google Maps links instead, because Google Routes is not enabled.
 
@@ -64,6 +66,66 @@ by `trip_title`, or after its first item); a later order for the same journey pa
 payment page in `deploy/accomy/payment-demo/`. That page charges nothing; pressing Pay there sends the user a
 Telegram message. The bot is not told, so it never says an order is paid.
 
+## Attachments
+
+With `telegram.accept_attachments: true` the Telegram adapter downloads what a user sends into the gateway's
+media cache (`$HERMES_HOME/cache/`), where a file stays for a day. What happens next depends on what it is:
+
+| The user sends | What the model gets | Done by |
+|---|---|---|
+| A photo, or an image sent as a file | The picture itself, in the same model call | core, because `config.yaml` declares `supports_vision: true` for the model |
+| A voice note | Its transcript, as the user's own words. The user is shown the transcript too | `speech.py`, as the gateway's speech-to-text provider (`stt.provider: accomy-transcribe`) |
+| Any other file | A note with the file's name and saved path; the model calls `read_attachment` when the request depends on the content | `tools_attachments.py` |
+| A sticker | A one-line description. A static sticker is described once by a model call and remembered | core |
+
+The adapter puts the content of a small text file straight into the message. The inbound gate takes it out
+again (`attachments.own_words`), so a text file is read like every other file, on request, and the message is
+what the sender typed: the length limit and the out-of-scope screen judge a person's words, never a file's.
+
+`read_attachment` chooses how to read a file by its extension (`attachments.py`):
+
+| Extension | Read as |
+|---|---|
+| `.pdf` | Text, page by page (pypdf). Pages with no text in them, such as scans, are listed so the model can ask for a photo |
+| `.docx` `.xlsx` `.pptx` `.doc` `.xls` `.ppt` `.odt` `.ods` `.odp` `.rtf` `.epub` | Markdown: headings, tables, every sheet, dates as dates (anydoc) |
+| `.txt` `.md` `.csv` `.tsv` `.json` `.xml` `.yaml` `.yml` `.log` `.ics` `.vcf` `.srt` | Text, in UTF-8 or the encoding it most looks like (a CSV from a Chinese or Japanese Windows is neither) |
+| `.html` `.htm` | The page's words, without tags, scripts or styles |
+| `.eml` | Sender, recipients, date, subject and body; attached files are named, not read |
+| `.ogg` `.oga` `.opus` `.mp3` `.m4a` `.wav` `.flac` `.aac` `.amr` | The words spoken (Amazon Transcribe) |
+| `.mp4` `.mov` `.webm` `.mkv` `.avi` | The words spoken on the sound track; the picture is not seen |
+| An image extension | Nothing: the model is told the picture is already in the conversation |
+| Anything else (`.zip`, `.exe`, ...) | Refused, with the kinds that can be read |
+
+What keeps this safe for a bot anyone can message:
+
+- **A file belongs to its sender.** The inbound gate notes each file of an admitted message under the user who
+  sent it. `read_attachment` opens only a file noted for the caller of the turn, found by its saved path or
+  its name. A made-up path, another user's file and a file older than a day are all unknown. The notes are in
+  memory: after a restart the user sends the file again.
+- **A document is parsed in a process of its own** (`_document_worker.py`, started with `python -I`), with 30
+  seconds to finish and, on Linux, 2 GB of memory. A parser that hangs or crashes on a hostile file takes nothing
+  else with it. Nothing in the reading path opens a network connection.
+- **Audio is decoded by ffmpeg with a fixed list of container formats and the file protocol only**, so a
+  playlist or a subtitle file named like audio cannot make it open other files or addresses.
+- **File content is data.** It reaches the model only as a tool result, never as part of the user's message.
+  The scope section tells the model so, and every `read_attachment` result repeats it: no instruction in a
+  file is followed, and a price for an order comes only from a search tool's quote.
+- **Messages that go no further leave no file behind.** The adapter has already written a message's files when
+  the gate runs, so the gate deletes the files of every message it drops, of a sender that auth refuses, and of
+  a `/new` or `/stop` (which still runs). A flood therefore fills no disk.
+
+**Speech-to-text.** `speech.py` converts the audio to 16 kHz mono PCM, signs a WebSocket address with the
+profile's own key pair (AWS Signature Version 4, no AWS library) and streams it to Amazon Transcribe in the
+region named by `transcribe_region`. Transcribe chooses among `transcribe_languages` (one dialect per language,
+the likeliest first). It names a language only at the speed of speech, so a recording longer than 16 seconds is
+identified on its first 8 seconds and then transcribed in one faster pass: a one-minute note takes about 18
+seconds. A recording that could not be transcribed is not counted against the allowances. Give the key pair to an identity that may do one thing, `transcribe:StartStreamTranscriptionWebSocket`
+(`deploy/accomy/README.md` has the policy). Without the keys or the region, a voice note reaches the model as a
+note that it could not be transcribed, and the assistant asks the user to type.
+
+**What it needs from the install.** `websockets` and `anydoc` are core dependencies of Hermes on Python 3.14.
+`pypdf` comes with the `documents` extra, which the container image installs, and `ffmpeg` is in the image.
+
 ## Secrets
 
 Names only. Values go in the profile's `.env`, never in the distribution files.
@@ -77,6 +139,8 @@ Names only. Values go in the profile's `.env`, never in the distribution files.
 - `TELEGRAM_ALLOWED_USERS`: optional, see Access below
 - `ACCOMY_PAYMENT_LINK_SECRET`: optional, the key that signs demo payment links (the payment page holds the same key)
 - `ACCOMY_DATABASE_URL`: optional, the order store's PostgreSQL connection string (see Order store below)
+- `ACCOMY_TRANSCRIBE_ACCESS_KEY_ID`, `ACCOMY_TRANSCRIBE_SECRET_ACCESS_KEY`: optional, the AWS key pair that
+  turns speech into text (see Attachments above)
 
 ## Install the profile
 
@@ -119,7 +183,7 @@ Open mode puts the operator's model and supplier keys behind every Telegram acco
 them. The limits are in-process and apply to every chat at once. A restart resets them.
 
 - **Turns, per sender:** 15 a minute and 150 a day. A message that is not a session command counts as a turn.
-  Suggested-reply taps and refused attachments count too.
+  Suggested-reply taps and messages that carry only an attachment count too.
 - **Turns, all senders together:** 180 a minute and 5,000 a day. The daily total is the bot's spend ceiling: set
   it to what your model budget allows. Many accounts that each stay under their own limit still
   cannot exceed this. Accounts that the allowlist refuses are not counted, so a stranger cannot use up this budget.
@@ -131,7 +195,18 @@ them. The limits are in-process and apply to every chat at once. A restart reset
   them. Every `/start` is welcomed, a repeated one too, except one sent within 3 seconds of the sender's last. Any other text that starts with `/` counts as a turn.
 - **Message length:** 4,096 characters, one Telegram message. A longer message is dropped before any model call.
   The gateway can still join messages that arrive while a turn is being set up, so one turn can carry up to a
-  minute's allowance of messages (about 60,000 characters). The turn limit is what bounds that.
+  minute's allowance of messages (about 60,000 characters). The turn limit is what bounds that. The limit
+  counts what was typed: the content of an attached text file is not part of the message.
+- **Files, per sender:** 40 a day. **Files, all senders together:** 1,500 a day, which bounds the media cache
+  at 30 GB, since Telegram hands a bot files of up to 20 MB and the gateway keeps them for a day. A photo, a
+  voice note and each picture of an album count as one file each. Past the limit the message is dropped, its
+  files are deleted and the sender is told once; such a message costs no turn.
+- **Reading a file:** `read_attachment` returns 12,000 characters at a time and at most 120,000 per file, and
+  gives a parser 30 seconds.
+- **Speech, per sender:** 600 seconds a day. **Speech, all senders together:** 6 hours a day, which is the
+  feature's daily spend ceiling at Amazon Transcribe's per-second price. Seconds are counted as they are sent:
+  the first 8 seconds of a recording longer than 16 seconds count twice. One recording is heard for at most
+  120 seconds; the transcript says when the rest was left out.
 - **Tool calls, per sender:** 30 a minute (existing) and 400 a day. Refused calls return `rate_limited`, and the
   assistant asks the user to try later.
 - **Supplier calls, per host, all senders together:** Seat Unique 100 a minute and 3,000 a day, because its key
@@ -145,6 +220,10 @@ The numbers are sized so a planning session never hits them: a planner sends bur
 taps, and a full day is about 100 messages. Change them where they are defined, then restart the gateway:
 
 - `plugins/accomy_travel/ingress.py`: turn, global and length limits, and the session-command list.
+- `plugins/accomy_travel/attachments.py`: files a day, and which extension is read how.
+- `plugins/accomy_travel/documents.py` and `_document_worker.py`: what one file may contribute, and the
+  parser's time and memory.
+- `plugins/accomy_travel/speech.py`: seconds of speech a day and per recording.
 - `plugins/accomy_travel/_common.py`: tool-call limits and `SUPPLIER_BUDGETS` (per host).
 - `plugins/accomy_travel/tools_research.py`: the Brave limits per sender (10 a minute, 100 a day).
 
@@ -156,8 +235,9 @@ The profile's `config.yaml` carries the gateway half of the hardening. Keep thes
 - `gateway.strict: true` and `gateway.trust_recent_files: false`: a reply can attach only files from the
   gateway's own cache. Without them a model that is talked into writing `MEDIA:/some/path` uploads that host
   file to the chat.
-- `telegram.accept_attachments: false`: photos, stickers, files and voice notes are not downloaded and never
-  reach a vision model. The assistant is told an attachment was sent and says it cannot read it.
+- `telegram.accept_attachments: true`: photos, voice notes and files are downloaded and read as the
+  Attachments section describes, within the file and speech limits above. Set it to `false` for a text-only
+  bot: nothing is then downloaded, and the assistant says it cannot read attachments.
 - `approvals.destructive_slash_confirm: false`: `/new` runs at once. The confirm card it replaces offers an
   "Always approve" button that only an admin may use, and this profile has no admin.
 - `gateway.thread_sessions_per_user: true`, `display.busy_input_mode: queue` and
@@ -170,6 +250,13 @@ What stays open, so plan for it:
 - A message outside the travel scope still costs one model turn: the model writes the refusal. The turn limits
   bound it.
 - No budget is counted in tokens or money. Set a spend limit on the model key at the provider.
+- The Telegram adapter downloads a file before the plugin's gate sees the message, and holds it in memory
+  while it does. The gate bounds what stays on disk, not the download itself: Telegram's 20 MB per file and its
+  own rate limits are what bound that.
+- People send personal documents. A file stays in the media cache for a day, the text the model read stays in
+  that conversation's history, and both are on the data volume. Keep the volume's disk encrypted, and say in
+  your privacy notice what the bot keeps.
+- A voice note leaves the host: its audio goes to Amazon Transcribe in the configured region.
 - The limits are in-process. A restart resets every counter.
 - Hermes treats the operating system as the only real boundary against a model that has been talked round
   (`SECURITY.md` §2.2). Run the public bot in a container: `deploy/accomy/` has a Compose setup with no host
@@ -265,6 +352,10 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   personal data, and it refuses attempts to change its role. Travel facts from public web search are allowed.
 - Built-in memory, session search, skills, cron scheduling, terminal, files and the web toolset are all
   off, so nothing carries between users.
+- Attachments: a scanned PDF and a picture inside a document are not read (no OCR): the assistant asks for a
+  photo instead. A video's picture is not seen, only its sound is heard. Archives and programs are refused.
+  Speech is recognised in the languages listed in `transcribe_languages`, up to 120 seconds a recording. A file
+  can be read for a day after it was sent, and not after a restart of the bot.
 
 ## Order store
 

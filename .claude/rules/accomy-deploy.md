@@ -47,7 +47,7 @@ The profile is for end users who are not the operator. These settings carry that
 | `build-image.sh` | Builds the image from a snapshot of the checkout |
 | `seed-secrets.sh` | Streams a `.env` into the data volume without printing it |
 | `watch.sh` | Follows the bot's conversations, read-only |
-| `ec2-bootstrap.sh` | Sets up an EC2 host: Docker, the image, the secrets, the stack. Run once for real; a second run, for a new build, has not been exercised |
+| `ec2-bootstrap.sh` | Sets up an EC2 host: Docker, the image, the secrets, the stack. Run again with a new image, it ships a build; both have been done for real |
 | `ec2-run.sh` | Runs one command on the EC2 host through Systems Manager and prints its output |
 | `payment-demo/` | The demo payment page: one AWS Lambda, an HTTP API and a DynamoDB table |
 

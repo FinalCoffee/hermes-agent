@@ -164,9 +164,9 @@ served on the API's own `execute-api` address instead. Remove everything with
 
 This path has run once on a real instance: Amazon Linux 2023 arm64 on a `t4g.large` in a private subnet behind
 a NAT gateway, with Docker 25.0 and Compose 5.7.1. The bot was connected to Telegram about two and a half
-minutes after launch. Changing a secret, as described under "Operating the instance", has also run once.
-Running the bootstrap a second time, for a new build, has not been exercised, and neither have the two lines
-added to it since that record the secrets parameter and the open setting in `/opt/accomy/.env`.
+minutes after launch. Changing a secret, as described under "Operating the instance", has also run once, and
+so has shipping a new build there: the bootstrap run a second time, with the settings it had recorded in
+`/opt/accomy/.env`. The bot was polling Telegram again about half a minute after its containers were replaced.
 
 The instance needs no inbound access at all: use Session Manager instead of SSH. Put it in a private subnet
 whose route to the internet is a NAT gateway, with no public address, in the VPC of the order database. The
@@ -324,8 +324,12 @@ running. The second repeats the last run's settings, which the bootstrap keeps i
 new image: whether the bot is open to everyone, the database host and the limits stay as they were. To change
 one of them, give it a value in place of the `\$` variable. The bootstrap pulls the image, refreshes
 `/opt/accomy` from it, reseeds the secrets and recreates the containers. The data volume is kept, so
-conversations survive; the limits and the quotes the bot holds in memory do not. This second run has not been
-exercised yet. Carrying the script over and reading the host's settings have.
+conversations survive; the limits, the quotes and the notes of who sent which file, which the bot holds in
+memory, do not. This has run once, as written here.
+
+`docker cp` cannot put a file into the bot container, whose root is read-only. To try something on a file
+there, pass it through standard input into the in-memory `/tmp`:
+`docker exec -i -u hermes accomy-bot-1 sh -c 'cat > /tmp/sample.ogg' < sample.ogg`.
 
 **Changing a secret.** A change to the parameter alone does nothing: the bot reads its secrets from the volume.
 Edit the profile's `.env`, store it again, then seed it into the volume and restart the bot. The seeding step

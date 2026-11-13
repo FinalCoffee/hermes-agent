@@ -53,6 +53,7 @@ async def handle(adapter: Any, query: Any, data: str, cb: dict[str, Any]) -> Non
         confirm_id,
         getattr(query.from_user, "id", ""),
         extra=adapter.config.extra,
+        choice=choice,
     ):
         return await answer_callback(
             query, refusal_text(requester)[:_TOAST_LIMIT], show_alert=True

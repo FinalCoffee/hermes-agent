@@ -47,7 +47,7 @@ def _rewrite(event_text: str, tmp_path, monkeypatch, plugin_home):
 
             runner = SimpleNamespace(
                 _hm_unknown_slash_reply=_unknown.__get__(SimpleNamespace()),
-                _hm_bundle_slash_rewrite=lambda *a, **k: False,
+                _check_slash_access=lambda *a, **k: None,
             )
             runner._hm_skill_slash_rewrite = GatewayInboundMixin._hm_skill_slash_rewrite.__get__(runner)
             source = SessionSource(platform=Platform.DISCORD, chat_id="c1")

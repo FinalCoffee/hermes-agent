@@ -965,7 +965,7 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         _, choice, confirm_id = parts
         from gateway.approval_actor import slash_confirm_refusal
         if await self._refused_tap(to, slash_confirm_refusal(self._slash_confirm_state.get(confirm_id) or "", confirm_id, to,
-                                                             extra=self.config.extra)):
+                                                             extra=self.config.extra, choice=choice)):
             return True
         session_key = self._pop_tap_state(
             self._slash_confirm_state, confirm_id,

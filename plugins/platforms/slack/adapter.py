@@ -5526,9 +5526,9 @@ class SlackAdapter(SlackSocketLifecycleMixin, BasePlatformAdapter):
             logger.warning("[Slack] Malformed slash-confirm value: %s", value)
             return
         session_key, confirm_id = value.split("|", 1)
-        if await self._refuse_other_requester(slash_confirm_refusal(session_key, confirm_id, user_id, extra=self.config.extra), body):
-            return
         choice = self._CONFIRM_CHOICES.get(action_id, "cancel")
+        if await self._refuse_other_requester(slash_confirm_refusal(session_key, confirm_id, user_id, extra=self.config.extra, choice=choice), body):
+            return
         decision_text = t(self._CONFIRM_DECISION_KEYS[choice], user=user_name)
         await self._finalize_interactive_message(
             channel_id, msg_ts, self._section_text(message), decision_text,

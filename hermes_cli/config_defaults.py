@@ -1605,8 +1605,8 @@ DEFAULT_CONFIG = {
 
     "telegram": {
         "reactions": False,  # add 👀/✅/❌ reactions to messages during processing
-        # per-chat/topic ephemeral system prompts (topics inherit from parent group)
-        "channel_prompts": {},
+        "accept_attachments": True,  # false: refuse inbound photos, files, voice, video, stickers unread (no download, no vision call)
+        "channel_prompts": {},  # per-chat/topic ephemeral system prompts (topics inherit from parent group)
         "allowed_chats": "",  # if set, ONLY respond in these group/supergroup chat IDs
         "extra": {
             # Bot API 10.1 native rich messages (tables/task lists/math). Off = legacy MarkdownV2,

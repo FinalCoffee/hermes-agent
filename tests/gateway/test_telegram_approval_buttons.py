@@ -273,7 +273,8 @@ class TestTelegramApprovalCallback:
         adapter = _make_adapter()
 
         query = AsyncMock()
-        query.data = "update_prompt:y"
+        adapter._update_prompt_id = "1"  # the /update card this process sent: an answer needs its id
+        query.data = "update_prompt:y:1"
         query.message = MagicMock()
         query.message.chat_id = 12345
         query.from_user = MagicMock()

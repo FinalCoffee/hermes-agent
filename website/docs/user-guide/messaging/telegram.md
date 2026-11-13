@@ -261,6 +261,25 @@ How it works:
 
 Each option is cut to 40 characters, and a footer with fewer than two usable options is removed without buttons.
 
+### Refusing attachments (text-only bots)
+
+Every attachment a sender posts is downloaded and cached by default: photos, documents, voice notes, audio, video, video notes, GIFs and stickers. A photo or a new sticker also runs a vision-model call, even when the vision toolset is off. On a public bot, where any stranger can send these, that is cost and disk use the operator never asked for. Refuse them outright with:
+
+```yaml
+telegram:
+  accept_attachments: false   # default: true
+```
+
+With `false`, an attachment is refused before anything is fetched: no download, no cache write, no vision call. This covers photos, albums, stickers, documents, video, video notes, voice, audio and GIFs, and the media a text reply points at. The message still reaches the agent:
+
+- a message with a caption or text is dispatched with that text, plus one short note that an attachment was sent and this assistant does not read attachments, so the agent can tell the user;
+- an attachment with no caption is dispatched as the note alone;
+- an album is one turn, however many items it has;
+- in a group, `require_mention` applies exactly as it does for accepted attachments.
+- a text sent just before an attachment is dispatched on its own, not joined to it: a question typed right before a photo is answered without the photo.
+
+The value must be a YAML `true` or `false`. Anything else, such as the string `"false"`, refuses attachments, so a typo fails closed. Text messages and commands are unaffected.
+
 ### Forum topics
 
 In Telegram supergroups with topics enabled, the command menu does **not** inherit from the global `AllGroupChats` scope — each forum supergroup needs its own chat-scoped command registration. Hermes handles this automatically: the first time a message arrives in a forum supergroup, the gateway lazily registers the same capped menu scoped to that chat (`BotCommandScopeChat`). This happens once per forum chat per gateway run and is transparent to users — the `/` menu appears in forum topics just like in regular groups, without any configuration.
@@ -1385,6 +1404,7 @@ gateway:
 
 - A user listed in `allow_admin_from` for a scope (DM or group) can run **every** registered slash command — built-in commands AND plugin-registered ones — through the live registry.
 - A user in `allow_from` but **not** in `allow_admin_from` can only run commands listed in `user_allowed_commands`, plus the always-allowed floor: `/help` and `/whoami`.
+- Skills and bundles are gated too: `/<skill-name>` is asked of the same list under its slash name, and Telegram's underscore spelling (`/audit_demo`) counts as the same name. Listing `audit-demo` in `user_allowed_commands` lets non-admins run that one skill and nothing else. Listing a bundle name (`/<bundle-name>`) runs the whole bundle, including every member skill it loads. Stacked skills (`/a /b ...`) must all be listed. A skill the user may not run gets the same reply as a name that does not exist.
 - Plain chat (non-slash messages) is unaffected. Non-admin users can still talk to the agent normally, they just can't trigger arbitrary commands.
 - **Backward compat:** if `allow_admin_from` is not set for a scope, slash command gating is disabled for that scope. Existing installs keep working with no changes.
 - DM admin status does not imply group admin status. Each scope has its own admin list.

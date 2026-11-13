@@ -6386,7 +6386,7 @@ def _define_discord_view_classes() -> None:
 
         async def _resolve(self, interaction: discord.Interaction, choice: str, color: discord.Color, label_key: str):
             if not await self._gate(interaction, resolved_msg=t("platform.discord.slash_confirm.already_resolved"), unauth_msg=_unauthorized(),
-                                    refusal=lambda uid: slash_confirm_refusal(self.session_key, self.confirm_id, uid, extra=self.answer_extra)):
+                                    refusal=lambda uid: slash_confirm_refusal(self.session_key, self.confirm_id, uid, extra=self.answer_extra, choice=choice)):
                 return
             await self._finalize_embed(
                 interaction, color,

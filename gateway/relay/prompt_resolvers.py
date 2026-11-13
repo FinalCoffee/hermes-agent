@@ -21,7 +21,8 @@ def prompt_refusal(state: dict, actor: dict, option_id: Optional[str] = None) ->
                                                     request_id=state.get("request_id"), choice=option_id)
     elif kind == "slash_confirm":
         requester = approval_actor.slash_confirm_refusal(session_key, str(state.get("confirm_id") or ""),
-                                                         actor["actor_id"], admin_ids=actor["admin_ids"])
+                                                         actor["actor_id"], admin_ids=actor["admin_ids"],
+                                                         choice=option_id)
     else:
         requester = approval_actor.clarify_refusal(str(state.get("clarify_id") or ""), actor["actor_id"],
                                                    admin_ids=actor["admin_ids"])

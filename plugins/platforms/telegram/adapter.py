@@ -197,6 +197,8 @@ from plugins.platforms.telegram.telegram_media_retry import unconfirmed_media_re
 from plugins.platforms.telegram import telegram_flood_window as _flood_window
 from plugins.platforms.telegram.telegram_media_fetch import (
     cache_replied_media, fetch_telegram_file, local_root, merged_typed_text, record_typed_text)
+from plugins.platforms.telegram.telegram_attachments import dispatch_refused_media, note_refused_observed, note_refused_replied
+from plugins.platforms.telegram.telegram_stickers import describe_sticker
 from plugins.platforms.telegram.telegram_ids import normalize_telegram_chat_id, parse_send_target, parse_telegram_message_id
 from plugins.platforms.telegram.telegram_resolved_prompt import edit_keeping_prompt
 from plugins.platforms.telegram.telegram_clarify_binding import ClarifyPrompt, log_resolved, tap_matches_prompt
@@ -336,6 +338,8 @@ from plugins.platforms.telegram.telegram_markdown import (
 from plugins.platforms.telegram.rich_markdown import (
     RICH_EMAIL_TOKEN_RE, escape_literal_hash_prefixes, rich_normalize_linebreaks)
 from plugins.platforms.telegram.rich_parts import edit_rich_parts, resume_rich_parts, send_rich_parts
+
+
 
 
 def _strip_mdv2(text: str) -> str:
@@ -4580,8 +4584,8 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
                 query, update_prompt_refusal(query.from_user.id, extra=self.config.extra)):
             return
         current_id = getattr(self, "_update_prompt_id", None)
-        if current_id is not None and (not current_id or card_id != current_id):
-            # A card from an earlier /update (or from before a restart) answers nothing.
+        if answer not in ("y", "n") or not current_id or card_id != current_id:
+            # Fail closed: no card sent by this process, an earlier or answered card, or a forged answer.
             await answer_callback(query, _toast("platform.telegram.slash_confirm.already_resolved"))
             return
         try:  # the answer reaches the updater first: a failed write leaves the card answerable
@@ -5721,6 +5725,8 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
     async def _cache_observed_media(self, msg: Message, event: MessageEvent) -> None:
         """Cache an unmentioned group attachment and annotate the observed text; oversized or unsupported
         attachments are noted in the transcript without downloading."""
+        if note_refused_observed(self, msg, event):
+            return
         status, cached = await self._download_observed_media(msg, "observed group media")
         if status == "oversized":
             limit_mb = getattr(self, "_max_doc_bytes", 20 * 1024 * 1024) // (1024 * 1024)
@@ -5750,6 +5756,8 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
 
     async def _cache_replied_media(self, msg: Any, event: MessageEvent) -> None:
         """Cache media from the message this turn replies to, if any (see telegram_media_fetch)."""
+        if note_refused_replied(self, msg, event):
+            return
         await cache_replied_media(self, msg, event)
 
     def _observed_media_source(self, msg: Message):
@@ -6275,6 +6283,8 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
         if msg.caption:
             from plugins.platforms.telegram.telegram_context import group_trigger_text
             event.text = group_trigger_text(self, msg, expand_link_entities(msg))
+        if await dispatch_refused_media(self, msg, event):  # telegram.accept_attachments: false
+            return
         # Stickers: _handle_sticker overwrites event.text with its vision description, so observe attribution must run after it.
         if msg.sticker:
             await self._handle_sticker(msg, event)
@@ -6318,38 +6328,7 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
         await flush_media_group_event(self, media_group_id)
 
     async def _handle_sticker(self, msg: Message, event: MessageEvent) -> None:
-        """Describe a sticker via vision, cached by file_unique_id; animated/video stickers get an emoji placeholder."""
-        from gateway.sticker_cache import (
-            get_cached_description, cache_sticker_description_async, build_sticker_injection,
-            build_animated_sticker_injection, STICKER_VISION_PROMPT)
-        sticker = msg.sticker
-        emoji = sticker.emoji or ""
-        set_name = sticker.set_name or ""
-        if sticker.is_animated or sticker.is_video:
-            event.text = build_animated_sticker_injection(emoji)
-            return
-        cached = get_cached_description(sticker.file_unique_id)
-        if cached:
-            event.text = build_sticker_injection(cached["description"], cached.get("emoji", emoji), cached.get("set_name", set_name))
-            logger.info("[Telegram] Sticker cache hit: %s", sticker.file_unique_id)
-            return
-        fallback = f"a sticker with emoji {emoji}" if emoji else "a sticker"
-        try:
-            _, image_bytes = await fetch_telegram_file(sticker, "sticker", local_root(self))
-            cached_path = await cache_image_from_bytes_async(bytes(image_bytes), ext=".webp")
-            logger.info("[Telegram] Analyzing sticker at %s", cached_path)
-            from tools.vision_tools import vision_analyze_tool
-            self._accept_update()  # Cancellation cannot undo an already submitted auxiliary LLM request.
-            result = json.loads(await vision_analyze_tool(image_url=cached_path, user_prompt=STICKER_VISION_PROMPT))
-            if result.get("success"):
-                description = result.get("analysis", "a sticker")
-                await cache_sticker_description_async(sticker.file_unique_id, description, emoji, set_name)
-                event.text = build_sticker_injection(description, emoji, set_name)
-            else:
-                event.text = build_sticker_injection(fallback, emoji, set_name)
-        except Exception as e:
-            logger.warning("[Telegram] Sticker analysis error: %s", _redact_telegram_error_text(e), exc_info=True)
-            event.text = build_sticker_injection(fallback, emoji, set_name)
+        await describe_sticker(self, msg, event)
 
     def _reload_dm_topics_from_config(self) -> None:
         """Re-read dm_topics from config.yaml so externally created topics work without restart."""
@@ -6687,7 +6666,7 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
         "group_allowed_chats", "TELEGRAM_GROUP_ALLOWED_CHATS",
         telegram_cfg.get("group_allowed_chats") or _telegram_extra.get("group_allowed_chats"))
     for _key in ("guest_mode", "disable_link_previews", "observe_unmentioned_group_messages", "free_response_topics",
-                 "suggested_replies"):
+                 "suggested_replies", "accept_attachments"):
         if _key in telegram_cfg:
             extras.setdefault(_key, telegram_cfg[_key])
     # Pass through telegram-specific extra keys but EXCLUDE generic shared-config keys: _merge_platform_map

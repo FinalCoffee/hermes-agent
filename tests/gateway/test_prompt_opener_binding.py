@@ -135,7 +135,8 @@ async def test_update_prompt_answers_only_its_opener(surface, sender, tmp_path, 
 
         monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "*")
         adapter = TelegramAdapter(PlatformConfig(enabled=True, token="t", extra=EXTRA))
-        query = AsyncMock(data="update_prompt:y", from_user=MagicMock(first_name=sender.title(), id=sender),
+        adapter._update_prompt_id = "7"  # the /update card this process sent; its id rides in the button
+        query = AsyncMock(data="update_prompt:y:7", from_user=MagicMock(first_name=sender.title(), id=sender),
                           message=MagicMock(chat_id=-100, message_id=43, message_thread_id=7, chat=MagicMock(type="supergroup")))
         await adapter._handle_callback_query(SimpleNamespace(callback_query=query), MagicMock())
         if sender == "bob":

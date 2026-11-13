@@ -140,19 +140,40 @@ def _authority_refusal(authority: Any, actor_id: Any, admin_ids: Any, extra: Any
 
 
 def slash_confirm_refusal(session_key: str, confirm_id: str, actor_id: Any, *, admin_ids: Any = (),
-                          extra: Any = None) -> Optional[str]:
-    """:func:`approval_refusal` for the slash-command confirmation (``/reload-mcp``) a click or typed
-    reply would resolve: the same rule, read from the pending confirm, with the confirmed command as
-    the slash floor (answering runs it). Nothing pending (or another confirm id) is never refused: the
-    resolver reports it as before."""
+                          extra: Any = None, choice: str) -> Optional[str]:
+    """:func:`approval_refusal` for the slash-command confirmation (``/reload-mcp``, ``/new``) a click or
+    typed reply would resolve: the same rule, read from the pending confirm, with the confirmed command as
+    the slash floor (answering runs it). An ``always`` answer writes the operator's config, so where the
+    scope has an admin list it is refused to anyone but an admin, whatever the approvers. *choice* is
+    required: a caller that forgot it must not get the ``always`` case silently allowed. Nothing pending
+    (or another confirm id) is never refused: the resolver reports it as before."""
     from hermes_cli.commands import resolve_command
     from tools.slash_confirm import get_pending
 
     pending = get_pending(session_key) or {}
+    if pending.get("confirm_id") != confirm_id:
+        return None
     command = str(pending.get("command") or "")
     cmd_def = resolve_command(command)
-    return _authority_refusal(pending.get("authority") if pending.get("confirm_id") == confirm_id else None,
-                              actor_id, admin_ids, extra, (cmd_def.name if cmd_def else command.lstrip("/"),))
+    name = cmd_def.name if cmd_def else command.lstrip("/")
+    authority = pending.get("authority")
+    if choice == "always" and _config_write_refused(authority, actor_id, admin_ids, extra):
+        return _ADMIN_ONLY + name
+    return _authority_refusal(authority, actor_id, admin_ids, extra, (name,))
+
+
+def _config_write_refused(authority: Any, actor_id: Any, admin_ids: Any, extra: Any) -> bool:
+    """True when *actor_id* may not make a persistent config change from a chat: the scope's slash
+    gating is on and the actor is not one of its admins. Gating off (no admin list) never refuses."""
+    from gateway.slash_access import SlashAccessPolicy, policy_for_chat_type
+
+    if extra is not None:
+        policy = policy_for_chat_type(extra, (authority or {}).get("chat_type"))
+    elif isinstance(admin_ids, SlashAccessPolicy):
+        policy = admin_ids
+    else:
+        policy = SlashAccessPolicy(bool(admin_ids), frozenset(str(a) for a in admin_ids), frozenset())
+    return policy.enabled and not policy.is_admin(actor_id)
 
 
 def clarify_refusal(clarify_id: str, actor_id: Any, *, admin_ids: Any = (),

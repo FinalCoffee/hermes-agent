@@ -35,6 +35,7 @@ from gateway.run_inbound_unauthorized import (
     unauthorized_owner_hint,
 )
 from gateway.session import SessionSource, build_session_context, label_shared_sender
+from gateway.skill_slash_access import bundle_slash_denial, bundle_slash_rewrite, skill_slash_denial
 from gateway.turn_lease import TurnLeaseTimeoutError
 from hermes_cli.observability.shared_metrics_busy import (
     note_busy_admitting, note_busy_outcome, settle_busy_arrival, stamp_busy_arrival)
@@ -453,11 +454,12 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         requester = clarify_refusal(clarify_id, event.sender_id() or "", admin_ids=self._prompt_admin_ids(event))
         return refusal_text(requester) if requester else None
 
-    def _refused_slash_confirm(self, event: MessageEvent, session_key: str, confirm_id: str) -> Optional[str]:
-        """The localized refusal when *event*'s sender may not answer slash confirm *confirm_id*, else None."""
+    def _refused_slash_confirm(self, event: MessageEvent, session_key: str, confirm_id: str, choice: str) -> Optional[str]:
+        """The localized refusal when *event*'s sender may not answer slash confirm *confirm_id* with
+        *choice*, else None."""
         from gateway.approval_actor import refusal_text, slash_confirm_refusal
         requester = slash_confirm_refusal(session_key, confirm_id, event.sender_id() or "",
-                                          admin_ids=self._prompt_admin_ids(event))
+                                          admin_ids=self._prompt_admin_ids(event), choice=choice)
         return refusal_text(requester) if requester else None
 
     def _prompt_admin_ids(self, event: MessageEvent):
@@ -543,7 +545,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             or self._slash_confirm_text_choices().get(_norm_reply)
         )
         if _confirm_choice is not None:
-            if _refusal := self._refused_slash_confirm(event, _quick_key, _pending_confirm.get("confirm_id") or ""):
+            if _refusal := self._refused_slash_confirm(event, _quick_key, _pending_confirm.get("confirm_id") or "", _confirm_choice):
                 return _refusal  # left pending for its requester
             _resolved = await _slash_confirm_mod.resolve(
                 _quick_key, _pending_confirm.get("confirm_id"), _confirm_choice,
@@ -659,16 +661,16 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         _cmd_def_inner = _resolve_cmd_inner(_evt_cmd) if _evt_cmd else None
 
         if _cmd_def_inner:
-            # /status and /context are intentionally pre-gate so users always see session state.
-            if _cmd_def_inner.name == "status":
-                return True, await self._handle_status_command(event)
-            if _cmd_def_inner.name == "context":
-                return True, await self._handle_context_command(event)
             # Slash access control mirrors the cold-path gate so non-admins can't bypass gating
             # just because an agent is busy. /help and /whoami are the always-allowed floor.
             _denied = self._check_slash_access(source, _cmd_def_inner.name)
             if _denied is not None:
                 return True, _denied
+            # /status and /context answer mid-run (they never queue behind the turn), for those the policy admits.
+            if _cmd_def_inner.name == "status":
+                return True, await self._handle_status_command(event)
+            if _cmd_def_inner.name == "context":
+                return True, await self._handle_context_command(event)
             if _cmd_def_inner.name in ("stop", "new"):
                 await self._hm_stop_owner_turn(_quick_key)
             # Any recognized slash command dispatches per its declared busy_policy (dispatch /
@@ -1119,36 +1121,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             return await getattr(self, f"_hm_cmd_{canonical}")(event, source, _quick_key)
         return False, None
 
-    def _hm_bundle_slash_rewrite(
-        self, event: MessageEvent, source: SessionSource, _quick_key: str, command: str
-    ) -> bool:
-        """Rewrite ``/<bundle>`` to the bundle invocation message; True when handled.
-        Skill bundles take precedence over individual skill commands (mirrors CLI dispatch)."""
-        try:
-            from agent.skill_bundles import (
-                build_bundle_invocation_message, resolve_bundle_command_key
-            )
-            bundle_key = resolve_bundle_command_key(command)
-            if bundle_key is None:
-                return False
-            # Pass the platform explicitly: bundle skill loading bypasses get_skill_commands()'
-            # scan-time disabled filter, and one gateway process serves several platforms, so
-            # env-var platform resolution can't be trusted here.
-            # Mirrors the stacked-skill gate (#58888).
-            bundle_result = build_bundle_invocation_message(
-                bundle_key, event.get_command_args().strip(), task_id=_quick_key,
-                platform=source.platform.value if source.platform else None,
-            )
-            if not bundle_result:
-                return False
-            event.text, _loaded, missing = bundle_result
-            if missing:
-                logger.info("Bundle %s skipped missing skills: %s", bundle_key, ", ".join(missing))
-            return True  # Fall through to normal message processing with bundle content
-        except Exception as exc:
-            logger.warning("Bundle dispatch failed: %s", exc)
-            return False
-
     @staticmethod
     def _hm_unknown_slash_reply(command: str, source: SessionSource) -> Optional[str]:
         """Reply for a /command that is not built-in/plugin/skill; None when it is known."""
@@ -1175,8 +1147,13 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
     ) -> Optional[str]:
         """Rewrite ``/<bundle>`` / ``/<skill>`` invocations into the skill prompt on ``event.text``;
         returns a reply string when the command is disabled/unknown/failed, else None.
-        resolve_skill_command_key() handles the Telegram underscore/hyphen round-trip (/claude_code)."""
-        if not command or self._hm_bundle_slash_rewrite(event, source, _quick_key, command):
+        resolve_skill_command_key() handles the Telegram underscore/hyphen round-trip (/claude_code).
+        Every skill and bundle is asked of the slash-access policy first (gateway.skill_slash_access)."""
+        if not command:
+            return None
+        if (_denied := bundle_slash_denial(self, source, command)) is not None:
+            return _denied
+        if bundle_slash_rewrite(event, source, _quick_key, command):
             return None
         try:
             from agent.skill_commands import (
@@ -1186,6 +1163,8 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             cmd_key = resolve_skill_command_key(command)
             if cmd_key is None:
                 return self._hm_unknown_slash_reply(command, source)
+            if (_denied := skill_slash_denial(self, source, [cmd_key])) is not None:
+                return _denied
             _plat = source.platform.value if source.platform else None
             user_instruction = event.get_command_args().strip()
             # Stacked slash-skill invocations: `/skill-a /skill-b do XYZ` loads every leading skill
@@ -1199,6 +1178,8 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             except Exception:
                 _build_stacked = None
                 extra_keys, stacked_instruction = [], user_instruction
+            if (_denied := skill_slash_denial(self, source, extra_keys)) is not None:
+                return _denied
             _skill_name = skill_cmds[cmd_key].get("name", "")
             if _plat and (_skill_name or extra_keys):
                 # Per-platform disabled check: get_skill_commands() only applies the *global*

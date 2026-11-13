@@ -17,6 +17,7 @@ provides_tools:
   - get_event_tickets
   - research_web
 provides_hooks:
+  - pre_gateway_dispatch
   - pre_llm_call
   - transform_llm_output
 requires_env:
@@ -34,4 +35,7 @@ requires_env:
     secret: true
   - name: BRAVE_SEARCH_API_KEY
     description: "Brave Search API key (LLM Context endpoint) for public-web research"
+    secret: true
+  - name: ACCOMY_DATABASE_URL
+    description: "PostgreSQL connection string of the order store (optional; only `hermes accomy-orders` uses it today)"
     secret: true

@@ -21,3 +21,6 @@ env_requires:
   - name: TELEGRAM_ALLOWED_USERS
     description: "Optional comma-separated Telegram numeric user IDs allowed to chat. Leave unset to keep the bot closed (see the plugin README)."
     required: false
+  - name: ACCOMY_DATABASE_URL
+    description: "Optional PostgreSQL connection string of the order store, e.g. postgresql://user:password@host:5432/chatbot?sslmode=verify-full (see the plugin README, Order store)."
+    required: false

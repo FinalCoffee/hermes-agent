@@ -20,13 +20,8 @@ SCAN_PAGE_SIZE = 500
 # Categories and subcategories change rarely; the cache holds one entry per category, a handful in total.
 CATALOG_TTL_SECONDS = 3600.0
 
-# Seat Unique allows 120 requests a minute per API key, and every chat shares that key. The budget keeps 20 in
-# reserve. Per-user limits in _common do not bound this, because one user's search fans out into several requests.
-REQUESTS_PER_MINUTE = 100
-
 _now: Callable[[], float] = time.monotonic
 _cache: dict[tuple[str, ...], tuple[float, Any]] = {}
-_budget = _common.RateLimiter()
 
 # Supplier status to a stable code and a model-facing sentence. Supplier text is never forwarded:
 # its error bodies are not needed to act, and they can echo request details.
@@ -52,8 +47,6 @@ class ScanResult:
 
 def _get(path: str, params: dict[str, Any] | None = None) -> dict:
     """GET one endpoint and return its whole ``{data, metadata}`` body."""
-    if not _budget.allow("seatunique", REQUESTS_PER_MINUTE, 60.0):
-        raise _common.ApiError(*_STATUS_ERRORS[429])
     headers = {"Authorization": f"Bearer {_common.secret(TOKEN_ENV)}"}
     status, body = _common.request_json("GET", BASE_URL + path, headers=headers, params=params)
     if status != 200:

@@ -277,6 +277,9 @@ messaging = [
   "qrcode==7.4.2",
 ] # aiohttp 3.14.5: prior CVEs + GHSA-9xw5-w5jj-pvcg/GHSA-2g87-pp6c-29x5/GHSA-5wr8-gcqf-gqf3 family
 cron = [] # croniter is now a core dependency; this extra kept for back-compat
+# PostgreSQL driver for plugins that keep their own records in Postgres (accomy_travel order store).
+# Same pin as the matrix extra, without its linux-only marker: asyncpg ships wheels for every platform.
+postgres = ["asyncpg==0.32.0"]
 slack = ["slack-bolt==1.30.0", "slack-sdk==3.45.0", "aiohttp==3.14.5"]
 # Matrix gateway deps. `mautrix[encryption]` pulls `python-olm`, whose
 # vendored libolm (archived 2023) cannot build on Windows or modern macOS:
@@ -580,6 +583,7 @@ dev = [
 test = [
   "distlib==0.4.4; sys_platform == 'win32'",
   "anthropic==0.125.0",
+  "asyncpg==0.32.0",
 ]
 
 [build-system]

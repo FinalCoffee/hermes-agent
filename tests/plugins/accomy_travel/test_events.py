@@ -48,7 +48,6 @@ class FakeSeatUnique:
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch):
     monkeypatch.setattr(_common, "_limiter", _common.RateLimiter())
-    monkeypatch.setattr(seatunique_client, "_budget", _common.RateLimiter())
     monkeypatch.setattr(seatunique_client, "_cache", {})
     monkeypatch.setattr(_common, "secret", lambda name: "test-token")
 
@@ -259,24 +258,6 @@ def test_other_country_names_keep_the_substring_match(monkeypatch):
     result = _result(search_events({"country": "ital"}))
 
     assert [event["country"] for event in result["events"]] == ["Italy"]
-
-
-def test_the_process_wide_seat_unique_budget_refuses_the_101st_request_without_a_call(monkeypatch):
-    now = [0.0]
-    monkeypatch.setattr(seatunique_client, "_budget", _common.RateLimiter(clock=lambda: now[0]))
-    fake = _install(monkeypatch, {"/v1/categories": (200, {"data": []})})
-
-    for _ in range(seatunique_client.REQUESTS_PER_MINUTE):
-        seatunique_client._get("/v1/categories")
-    with pytest.raises(_common.ApiError) as refused:
-        seatunique_client._get("/v1/categories")
-
-    assert refused.value.code == "rate_limited"
-    assert len(fake.calls) == seatunique_client.REQUESTS_PER_MINUTE
-
-    now[0] = 60.0
-    seatunique_client._get("/v1/categories")
-    assert len(fake.calls) == seatunique_client.REQUESTS_PER_MINUTE + 1
 
 
 def test_city_and_country_filter_client_side_case_insensitively(monkeypatch):

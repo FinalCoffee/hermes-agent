@@ -127,15 +127,66 @@ def test_non_admin_cannot_run_operator_commands(dist_home, chat_type, command):
 
 
 @pytest.mark.parametrize("chat_type", ["dm", "group"])
-@pytest.mark.parametrize("command", ["new", "help", "start", "stop"])
+@pytest.mark.parametrize("command", ["help", "whoami", "start"])
 def test_non_admin_can_run_the_public_commands(dist_home, chat_type, command):
     assert _slash_policy(chat_type).can_run("424242", command)
+
+
+@pytest.mark.parametrize("command", ["new", "stop"])
+def test_session_commands_run_in_a_private_chat_only(dist_home, command):
+    """In a group /new and /stop also act on other members' conversations."""
+    assert _slash_policy("dm").can_run("424242", command)
+    assert not _slash_policy("group").can_run("424242", command)
+
+
+def test_a_reply_cannot_attach_a_host_file(dist_home, tmp_path, monkeypatch):
+    """A model talked into writing MEDIA:/path must not make the gateway upload that file."""
+    from gateway.media_policy import apply_media_policy_env
+    from gateway.platforms.base import validate_media_delivery_path
+
+    for name in ("HERMES_MEDIA_DELIVERY_STRICT", "HERMES_MEDIA_TRUST_RECENT_FILES", "HERMES_MEDIA_ALLOW_DIRS"):
+        monkeypatch.delenv(name, raising=False)
+    host_file = tmp_path / "notes.txt"
+    host_file.write_text("just written, so the recency rule would trust it")
+
+    apply_media_policy_env(load_config())
+
+    assert validate_media_delivery_path(str(host_file)) is None
+
+
+def test_attachments_are_refused_unread(dist_home):
+    from plugins.platforms.telegram import telegram_attachments
+
+    telegram = load_gateway_config().platforms[Platform.TELEGRAM]
+
+    assert telegram_attachments.refused(SimpleNamespace(config=telegram))
+
+
+def test_members_of_a_group_cannot_disturb_one_another(dist_home):
+    from gateway.run import GatewayRunner
+
+    gateway = load_gateway_config()
+
+    assert gateway.thread_sessions_per_user  # one session per member inside a forum topic
+    assert GatewayRunner._load_busy_input_mode() == "queue"  # a new message never aborts a running reply
+
+
+def test_new_runs_without_the_confirm_card(dist_home):
+    """The card offers "Always approve", which writes config.yaml."""
+    assert load_config()["approvals"]["destructive_slash_confirm"] is False
 
 
 def test_gateway_is_closed_by_default(dist_home):
     gateway = load_gateway_config()
     assert gateway.unauthorized_dm_behavior == "decline"
     assert not os.environ.get("GATEWAY_ALLOW_ALL_USERS")
+
+
+def test_an_api_server_key_starts_no_api_server(dist_home, monkeypatch):
+    # The container image writes this key into .env on first boot.
+    monkeypatch.setenv("API_SERVER_KEY", "0123456789abcdef0123456789abcdef")
+    api_server = load_gateway_config().platforms.get(Platform.API_SERVER)
+    assert api_server is None or not api_server.enabled
 
 
 def test_manifest_names_every_secret_the_profile_needs():

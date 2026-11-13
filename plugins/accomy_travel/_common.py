@@ -8,10 +8,12 @@ import functools
 import html
 import logging
 import re
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import httpx
 
@@ -33,6 +35,23 @@ UNTRUSTED_NOTE = (
 
 # One user must not drain a supplier quota shared by every chat (Seat Unique allows 120 requests/min per key).
 CALLS_PER_MINUTE = 30
+# A planning day is about 150 turns (ingress.py) of roughly two or three tool calls each. 400 leaves headroom and
+# caps what one account can spend on suppliers in a day, however it paces its calls.
+CALLS_PER_DAY = 400
+
+# Process-wide supplier budgets per host, as (per minute, per day). Every chat shares them, so many accounts
+# cannot multiply supplier spend; the per-sender limits above bound one account only. Seat Unique allows 120
+# requests a minute per key, so 100 keeps 20 in reserve. The other hosts publish no limit this plugin knows, so
+# their numbers are sized to a planning load and should be tuned to each supplier contract.
+SUPPLIER_BUDGETS: dict[str, tuple[int, int]] = {
+    "api.sandbox.dev.seatunique.tech": (100, 3000),
+    "open.fusionconnectgroup.com": (60, 2000),
+    "maps.googleapis.com": (120, 3000),
+    "places.googleapis.com": (120, 3000),
+    "weather.googleapis.com": (120, 3000),
+    "api.search.brave.com": (60, 1000),
+}
+DEFAULT_SUPPLIER_BUDGET = (60, 1000)
 
 
 @dataclass(frozen=True)
@@ -77,6 +96,8 @@ class RateLimiter:
         self._hits: dict[str, deque[float]] = {}
         self._windows: dict[str, float] = {}
         self._swept_at = clock()
+        # Tool handlers run on a thread pool and share the supplier budget across sessions.
+        self._lock = threading.Lock()
 
     def _sweep(self, now: float) -> None:
         # A public bot sees an unbounded number of callers: forget each one once its own window has passed.
@@ -87,19 +108,33 @@ class RateLimiter:
             del self._hits[key], self._windows[key]
 
     def allow(self, key: str, limit: int, window_seconds: float) -> bool:
-        now = self._clock()
-        self._sweep(now)
-        self._windows[key] = window_seconds
-        hits = self._hits.setdefault(key, deque())
-        while hits and now - hits[0] >= window_seconds:
-            hits.popleft()
-        if len(hits) >= limit:
-            return False
-        hits.append(now)
-        return True
+        return self.admit(((key, limit, window_seconds),)) is None
+
+    def admit(self, checks) -> int | None:
+        """Charge one hit to every ``(key, limit, window_seconds)`` check, or to none of them.
+
+        Returns None when every window admits the hit. Otherwise returns the index of the first refusing
+        check and records nothing, so a turn that one limit refuses never spends from the others.
+        """
+        with self._lock:
+            now = self._clock()
+            self._sweep(now)
+            queues = []
+            for index, (key, limit, window_seconds) in enumerate(checks):
+                self._windows[key] = window_seconds
+                hits = self._hits.setdefault(key, deque())
+                while hits and now - hits[0] >= window_seconds:
+                    hits.popleft()
+                if len(hits) >= limit:
+                    return index
+                queues.append(hits)
+            for hits in queues:
+                hits.append(now)
+            return None
 
 
 _limiter = RateLimiter()
+_supplier_budget = RateLimiter()
 
 
 def request_json(
@@ -118,6 +153,10 @@ def request_json(
     each client can read its supplier's own error envelope. ``content`` sends exact bytes (signed
     bodies must not be re-serialized). Redirects are never followed.
     """
+    host = urlparse(url).hostname or ""
+    per_minute, per_day = SUPPLIER_BUDGETS.get(host, DEFAULT_SUPPLIER_BUDGET)
+    if _supplier_budget.admit(((f"{host}:minute", per_minute, 60.0), (f"{host}:day", per_day, 86400.0))) is not None:
+        raise ApiError("rate_limited", "The travel data service is busy. Try again later.")
     merged = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     try:
         response = httpx.request(
@@ -161,13 +200,17 @@ def fail(message: str, code: str = "error") -> str:
 
 
 def tool_handler(func: Callable[[dict], str]) -> Callable[..., str]:
-    """Wrap ``func(args) -> str`` into the registry's handler contract: per-caller rate limit,
+    """Wrap ``func(args) -> str`` into the registry's handler contract: per-caller rate limits (minute and day),
     ``ApiError`` and bad-argument ``ValueError`` become error results (handlers never raise those)."""
 
     @functools.wraps(func)
     def handler(args: dict, **_kwargs: Any) -> str:
-        if not _limiter.allow(caller_id(), CALLS_PER_MINUTE, 60.0):
+        caller = caller_id()
+        refused = _limiter.admit(((caller, CALLS_PER_MINUTE, 60.0), (f"{caller}:day", CALLS_PER_DAY, 86400.0)))
+        if refused == 0:
             return fail("Too many travel lookups in the last minute. Wait a moment, then try again.", "rate_limited")
+        if refused == 1:
+            return fail("Today's travel lookup limit is reached. Tell the user to come back tomorrow.", "rate_limited")
         try:
             return func(args or {})
         except ApiError as exc:

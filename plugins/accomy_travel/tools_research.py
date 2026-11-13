@@ -67,9 +67,9 @@ _RESEARCH_WEB_SCHEMA = {
 
 
 def _within_limits(caller: str) -> bool:
-    return _limiter.allow(f"{caller}:minute", _MINUTE_LIMIT, 60.0) and _limiter.allow(
-        f"{caller}:day", _DAY_LIMIT, 86400.0
-    )
+    return _limiter.admit((
+        (f"{caller}:minute", _MINUTE_LIMIT, 60.0), (f"{caller}:day", _DAY_LIMIT, 86400.0)
+    )) is None
 
 
 def _freshness_arg(args: dict) -> str | None:

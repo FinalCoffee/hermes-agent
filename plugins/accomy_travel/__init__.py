@@ -2,15 +2,17 @@
 
 Tools search and price only (TMC hotels and flights, Seat Unique events, Google places and weather,
 Brave web research); nothing here books, pays or cancels. ``policy`` adds the persona, the scope
-rules and the suggested-reply instruction as frozen system-prompt sections.
+rules and the suggested-reply instruction as frozen system-prompt sections. ``orderstore`` is the
+order database behind ``hermes accomy-orders``; no tool writes to it yet.
 """
 
 from __future__ import annotations
 
 import functools
 
-from . import policy, tools_events, tools_flights, tools_hotels, tools_places, tools_research
+from . import ingress, policy, tools_events, tools_flights, tools_hotels, tools_places, tools_research
 from ._common import TOOLSET, has_secrets
+from .orderstore import cli as orders_cli
 
 _TOOL_MODULES = (tools_places, tools_hotels, tools_flights, tools_events, tools_research)
 
@@ -22,4 +24,6 @@ def register(ctx) -> None:
                 name=spec.name, toolset=TOOLSET, schema=spec.schema, handler=spec.handler,
                 check_fn=functools.partial(has_secrets, *spec.requires_env),
                 requires_env=list(spec.requires_env), emoji=spec.emoji)
+    ctx.register_hook("pre_gateway_dispatch", ingress.gate_inbound)
+    ctx.register_cli_command(orders_cli.COMMAND, orders_cli.HELP, orders_cli.setup, orders_cli.run)
     policy.register(ctx)

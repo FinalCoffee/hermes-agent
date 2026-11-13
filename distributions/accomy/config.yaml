@@ -22,7 +22,8 @@ agent:
   reasoning_effort: "medium"
   # Telegram is excluded from the coding posture already; set explicitly so `hermes chat` tests match.
   coding_context: "off"
-  max_turns: 20
+  # Tool-calling rounds per message. A trip plan needs a handful; every round is a paid model call.
+  max_turns: 12
   # Safety net that outlives any later edit to platform_toolsets (tools_config.py:639).
   disabled_toolsets:
     - terminal
@@ -102,24 +103,59 @@ terminal:
   # would load whatever project the gateway was started from into the prompt.
   cwd: "~/accomy-workspace"
 
+# No first-contact offers or hints: they are written for a single owner, and showing one writes config.yaml.
+onboarding:
+  profile_build: "off"
+  seen:
+    busy_input_prompt: true
+    tool_progress_prompt: true
+    profile_build_offered: true
+
+# /new runs at once. The confirm card it replaces offers "Always approve", which only an admin may use.
+approvals:
+  destructive_slash_confirm: false
+
+# A message sent while a reply is being written waits its turn instead of aborting the reply.
+display:
+  busy_input_mode: queue
+
+# Summarize a conversation at 60k tokens: the default for this model is 204k tokens on every call.
+compression:
+  threshold_tokens: 60000
+
 gateway:
   # Closed by default: strangers get one polite refusal, not a pairing code. Open the bot with
   # gateway.allow_all_users or TELEGRAM_ALLOWED_USERS (see the plugin README).
   unauthorized_dm_behavior: decline
   unauthorized_dm_decline_message: "您好，Accomy 目前只開放給受邀的使用者。"
+  # A reply may attach only files from the gateway's own cache: without these, a model talked into writing
+  # MEDIA:/some/path uploads that host file to the chat (gateway/media_policy.py).
+  strict: true
+  trust_recent_files: false
+  # Forum topics: one session per member, so members cannot interrupt or reset one another.
+  thread_sessions_per_user: true
+  max_concurrent_sessions: 8
   platforms:
     telegram:
       # Skips SOUL/AGENTS/.cursorrules discovery for messaging sessions (session_execution.py:42-54).
       skip_context_files: true
+    # No API server. The container image writes an API_SERVER_KEY into .env on first boot, and a key
+    # alone starts the OpenAI-compatible API server (gateway/config_env.py). The gateway's own session
+    # listener on loopback is separate and stays.
+    api_server:
+      enabled: false
 
 telegram:
   suggested_replies: true
   require_mention: true
   reactions: false
+  # Text only: photos, stickers, files and voice notes are not downloaded and reach no vision model.
+  accept_attachments: false
   # Fail-closed owner placeholder: slash gating turns on only when an admin list is non-empty, and "0"
   # matches no Telegram user, so every sender gets only /help, /whoami and the list below.
   # Replace "0" with the owner's numeric Telegram ID (see the plugin README).
   allow_admin_from: ["0"]
   user_allowed_commands: [start, new, stop]
   group_allow_admin_from: ["0"]
-  group_user_allowed_commands: [start, new, stop]
+  # No new/stop in groups: there they also act on other members' conversations.
+  group_user_allowed_commands: [start]

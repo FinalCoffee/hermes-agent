@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from plugins.accomy_travel import attachments, documents
+from plugins.accomy_travel import attachments, documents, parsers
 from plugins.accomy_travel._common import ApiError
 
 FIXTURES = Path(__file__).parent / "fixtures" / "attachments"
@@ -30,7 +30,8 @@ def _refusal(path) -> str:
 def test_a_pdf_gives_its_text_page_by_page_chinese_included():
     document = _read(FIXTURES / "booking.pdf")
 
-    assert document.pages == 2 and document.complete and document.empty_pages == ()
+    assert document.pages == 2 and document.complete
+    assert document.scanned_pages == () and document.unread_pages == ()
     first, second = document.text.split("[page 2]")
     assert first.startswith("[page 1]\nBooking confirmation ABC123")
     assert "Fare: USD 412.30 economy (Y)" in first
@@ -173,7 +174,7 @@ def test_a_pdf_that_opens_with_hundreds_of_scanned_pages_still_gives_the_text_be
 
     assert document.pages == 322 and document.complete
     assert document.text.startswith("[page 321]\nBooking confirmation ABC123")
-    assert document.empty_pages == tuple(range(1, 321))
+    assert document.unread_pages == tuple(range(1, 321))  # no model is asked in this test, so none is read
 
 
 def test_a_saved_mail_gives_its_headers_and_body_and_names_what_is_attached(tmp_path):
@@ -204,12 +205,12 @@ def test_a_mail_that_names_an_encoding_nobody_knows_is_reported_damaged(tmp_path
 def _worker(tmp_path, monkeypatch, source: str) -> None:
     script = tmp_path / "worker.py"
     script.write_text(source)
-    monkeypatch.setattr(documents, "_WORKER", script)
+    monkeypatch.setattr(parsers, "_WORKER", script)
 
 
 def test_a_parse_that_runs_too_long_is_stopped(tmp_path, monkeypatch):
     _worker(tmp_path, monkeypatch, "import time\ntime.sleep(60)\n")
-    monkeypatch.setattr(documents, "WORKER_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(parsers, "TIMEOUT_SECONDS", 0.5)
     started = time.monotonic()
 
     message = _refusal(FIXTURES / "booking.pdf")
@@ -226,9 +227,10 @@ def test_a_parser_that_dies_is_reported_as_a_damaged_file(tmp_path, monkeypatch)
 def test_the_parser_runs_in_another_process_with_the_interpreter_isolated(tmp_path, monkeypatch):
     _worker(tmp_path, monkeypatch, (
         "import json, os, sys\n"
-        "json.dump({'text': f'{os.getpid()} {sys.flags.isolated} {sys.argv[1]}', 'complete': True}, sys.stdout)\n"))
+        "text = f'{os.getpid()} {sys.flags.isolated} {sys.argv[1]}'\n"
+        "json.dump({'texts': [[1, text]], 'pages': 1, 'empty_pages': [], 'complete': True}, sys.stdout)\n"))
 
-    pid, isolated, kind = _read(FIXTURES / "booking.pdf").text.split()
+    pid, isolated, kind = _read(FIXTURES / "booking.pdf").text.removeprefix("[page 1]\n").split()
 
     assert int(pid) != documents.os.getpid() and isolated == "1" and kind == "pdf"
     assert sys.flags.isolated == 0  # the test itself is not isolated, so the flag came from the command

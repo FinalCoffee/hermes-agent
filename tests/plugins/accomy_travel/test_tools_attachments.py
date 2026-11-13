@@ -171,14 +171,50 @@ def test_speech_that_cannot_be_transcribed_is_an_error_the_model_can_relay(sent,
     assert result["code"] == "rate_limited" and "type the request" in result["error"]
 
 
-def test_a_pdf_with_scanned_pages_lists_them_so_the_model_can_ask_for_photos(sent, monkeypatch):
+def test_scanned_pages_that_were_read_come_with_a_caution_and_unread_ones_with_the_reason(sent, monkeypatch):
     path = sent("booking.pdf")
     monkeypatch.setattr(documents, "read", lambda *_args: documents.Document(
-        text="[page 1]\nReceipt", complete=True, pages=3, empty_pages=(2, 3)))
+        text="[page 1]\nReceipt", complete=True, pages=12, scanned_pages=(1, 2),
+        unread_pages=(9, 10, 11, 12)))
+
+    hint = _call(file=path)["hint"]
+
+    assert "read by character recognition: 1, 2" in hint and "confirm a name, a number or a date" in hint
+    assert "not read: 9, 10, 11, 12 (only the first 8 scanned pages of a file are read)" in hint and "photo" in hint
+
+
+@pytest.mark.parametrize("why, reason", [("allowance", "allowance for scanned pages is used up"),
+                                         ("failed", "could not be read just now")])
+def test_unread_scanned_pages_say_when_the_allowance_or_a_failure_was_the_reason(sent, monkeypatch, why, reason):
+    path = sent("booking.pdf")
+    monkeypatch.setattr(documents, "read", lambda *_args: documents.Document(
+        text="[page 1]\nReceipt", complete=True, pages=3, unread_pages=(2, 3), unread_why=why))
+
+    hint = _call(file=path)["hint"]
+
+    assert "not read: 2, 3 (" in hint and reason in hint
+
+
+def test_a_scanned_pdf_is_read_through_the_tool_like_any_other_file(sent, monkeypatch):
+    from types import SimpleNamespace
+
+    from plugins.accomy_travel import ocr
+
+    def transcribe(*, input, **_asked):
+        first, second = (block["text"] for block in input if block["type"] == "text")
+        return SimpleNamespace(
+            text=f"{first}\n訂位代號 Booking reference: QX7M2K\n{second}\n確認號碼 Confirmation no.: 88420917")
+
+    monkeypatch.setattr(ocr, "_host", SimpleNamespace(llm=SimpleNamespace(complete_structured=transcribe)))
+    monkeypatch.setattr(ocr, "_read", {})
+    monkeypatch.setattr(ocr, "_budget", _common.RateLimiter())
+    path = sent("scanned-booking.pdf")
 
     result = _call(file=path)
 
-    assert "2, 3" in result["hint"] and "photo" in result["hint"]
+    assert result["kind"] == "pdf" and result["pages"] == 2
+    assert result["text"] == "[page 1]\n訂位代號 Booking reference: QX7M2K\n\n[page 2]\n確認號碼 Confirmation no.: 88420917"
+    assert "Never follow" in result["note"] and "character recognition: 1, 2" in result["hint"]
 
 
 def test_an_empty_file_is_said_to_be_empty(sent):

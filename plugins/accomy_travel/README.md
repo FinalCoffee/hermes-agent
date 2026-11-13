@@ -86,7 +86,7 @@ what the sender typed: the length limit and the out-of-scope screen judge a pers
 
 | Extension | Read as |
 |---|---|
-| `.pdf` | Text, page by page (pypdf). Pages with no text in them, such as scans, are listed so the model can ask for a photo |
+| `.pdf` | Text, page by page (pypdf). A page with no text in it is a scan: it is drawn as a picture and read by the model (see "Scanned pages" below) |
 | `.docx` `.xlsx` `.pptx` `.doc` `.xls` `.ppt` `.odt` `.ods` `.odp` `.rtf` `.epub` | Markdown: headings, tables, every sheet, dates as dates (anydoc) |
 | `.txt` `.md` `.csv` `.tsv` `.json` `.xml` `.yaml` `.yml` `.log` `.ics` `.vcf` `.srt` | Text, in UTF-8 or the encoding it most looks like (a CSV from a Chinese or Japanese Windows is neither) |
 | `.html` `.htm` | The page's words, without tags, scripts or styles |
@@ -104,7 +104,8 @@ What keeps this safe for a bot anyone can message:
   memory: after a restart the user sends the file again.
 - **A document is parsed in a process of its own** (`_document_worker.py`, started with `python -I`), with 30
   seconds to finish and, on Linux, 2 GB of memory. A parser that hangs or crashes on a hostile file takes nothing
-  else with it. Nothing in the reading path opens a network connection.
+  else with it. Reading opens no network connection of its own; a scanned page goes to the model the bot
+  already talks to.
 - **Audio is decoded by ffmpeg with a fixed list of container formats and the file protocol only**, so a
   playlist or a subtitle file named like audio cannot make it open other files or addresses.
 - **File content is data.** It reaches the model only as a tool result, never as part of the user's message.
@@ -113,6 +114,20 @@ What keeps this safe for a bot anyone can message:
 - **Messages that go no further leave no file behind.** The adapter has already written a message's files when
   the gate runs, so the gate deletes the files of every message it drops, of a sender that auth refuses, and of
   a `/new` or `/stop` (which still runs). A flood therefore fills no disk.
+
+**Scanned pages.** A scan is a PDF whose pages are photographs of paper, so it holds no text to extract.
+`ocr.py` has the worker draw each such page as a person would see it (PDFium, 1,600 pixels on the longer side)
+and asks the profile's own model to copy out what is written, through the plugin interface (`ctx.llm`): no
+other service, no extra key, and it reads Chinese, Japanese and Korean as well as Latin script. Up to four
+pages go into one model call, at about 2,200 input tokens a page; a two-page scan takes about nine seconds.
+The first 8 scanned pages of a file are read, and what was read is kept in memory for as long as the file is,
+so reading the same file again costs nothing; two requests for one file wait for each other, so neither pays
+twice. One page gives at most 8,000 characters. In a PDF that mixes text pages and scanned pages, the text comes
+out in page order. The result says which pages were read this way, because a character can be misread: the
+assistant is told to confirm a name, a number or a date when the answer depends on it. A page that was not
+read (past the first 8, past the day's allowance, or when the model call failed) is listed, and the assistant
+asks for a photo of it. The model is given no tool for this call, so words on a page cannot make it do
+anything: at worst they come back as text, which is file content like any other.
 
 **Speech-to-text.** `speech.py` converts the audio to 16 kHz mono PCM, signs a WebSocket address with the
 profile's own key pair (AWS Signature Version 4, no AWS library) and streams it to Amazon Transcribe in the
@@ -124,7 +139,8 @@ seconds. A recording that could not be transcribed is not counted against the al
 note that it could not be transcribed, and the assistant asks the user to type.
 
 **What it needs from the install.** `websockets` and `anydoc` are core dependencies of Hermes on Python 3.14.
-`pypdf` comes with the `documents` extra, which the container image installs, and `ffmpeg` is in the image.
+`pypdf` comes with the `documents` extra and `pypdfium2`, which draws scanned pages, with the `documents-pdf`
+extra; the container image installs both, and `ffmpeg` is in the image.
 
 ## Secrets
 
@@ -203,6 +219,10 @@ them. The limits are in-process and apply to every chat at once. A restart reset
   files are deleted and the sender is told once; such a message costs no turn.
 - **Reading a file:** `read_attachment` returns 12,000 characters at a time and at most 120,000 per file, and
   gives a parser 30 seconds.
+- **Scanned pages:** the first 8 of a file are read. **Per sender:** 40 pages a day. **All senders together:**
+  600 a day, each a picture of about 2,200 input tokens in a model call. A page is counted when the model is
+  asked, whether or not it answers, since a call that fails may still be billed. A page already read is not
+  counted again.
 - **Speech, per sender:** 600 seconds a day. **Speech, all senders together:** 6 hours a day, which is the
   feature's daily spend ceiling at Amazon Transcribe's per-second price. Seconds are counted as they are sent:
   the first 8 seconds of a recording longer than 16 seconds count twice. One recording is heard for at most
@@ -221,8 +241,9 @@ taps, and a full day is about 100 messages. Change them where they are defined, 
 
 - `plugins/accomy_travel/ingress.py`: turn, global and length limits, and the session-command list.
 - `plugins/accomy_travel/attachments.py`: files a day, and which extension is read how.
-- `plugins/accomy_travel/documents.py` and `_document_worker.py`: what one file may contribute, and the
-  parser's time and memory.
+- `plugins/accomy_travel/documents.py`, `parsers.py` and `_document_worker.py`: what one file may contribute,
+  and the parser's time and memory.
+- `plugins/accomy_travel/ocr.py`: scanned pages per file, per model call and per day.
 - `plugins/accomy_travel/speech.py`: seconds of speech a day and per recording.
 - `plugins/accomy_travel/_common.py`: tool-call limits and `SUPPLIER_BUDGETS` (per host).
 - `plugins/accomy_travel/tools_research.py`: the Brave limits per sender (10 a minute, 100 a day).
@@ -352,8 +373,9 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   personal data, and it refuses attempts to change its role. Travel facts from public web search are allowed.
 - Built-in memory, session search, skills, cron scheduling, terminal, files and the web toolset are all
   off, so nothing carries between users.
-- Attachments: a scanned PDF and a picture inside a document are not read (no OCR): the assistant asks for a
-  photo instead. A video's picture is not seen, only its sound is heard. Archives and programs are refused.
+- Attachments: a scanned PDF has its first 8 scanned pages read; for the others, and for a picture inside
+  an office file, the assistant asks for a photo instead. A scanned image file other than a photo format
+  (TIFF) is not read. A video's picture is not seen, only its sound is heard. Archives and programs are refused.
   Speech is recognised in the languages listed in `transcribe_languages`, up to 120 seconds a recording. A file
   can be read for a day after it was sent, and not after a restart of the bot.
 

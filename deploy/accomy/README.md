@@ -77,6 +77,8 @@ section "Attachments", says what is read and how). Two things here serve that:
 - **The media cache is in the data volume**, under `cache/`. The gateway removes a file after a day, and the
   plugin deletes the files of a message it drops, and limits files to 1,500 a day across all senders. At
   Telegram's 20 MB per file that is at most 30 GB: give the volume's disk that much room.
+- **Scanned PDF pages are read by the model the bot already uses**, at the endpoint that is on the allowlist:
+  no host or key is added for them. The page pictures are drawn inside the bot container.
 - **Speech-to-text is Amazon Transcribe.** The bot streams a voice note's audio to
   `transcribestreaming.<region>.amazonaws.com` on port 8443, the only port Transcribe serves a WebSocket on.
   `squid.conf` allows that one host on that one port. The region is `transcribe_region` in the profile's
@@ -328,8 +330,10 @@ conversations survive; the limits, the quotes and the notes of who sent which fi
 memory, do not. This has run once, as written here.
 
 `docker cp` cannot put a file into the bot container, whose root is read-only. To try something on a file
-there, pass it through standard input into the in-memory `/tmp`:
-`docker exec -i -u hermes accomy-bot-1 sh -c 'cat > /tmp/sample.ogg' < sample.ogg`.
+there, pass it through standard input into the container's in-memory scratch directory:
+
+<!-- no-tmp: ok — a path inside the bot container, not on the host -->
+`docker exec -i -u hermes accomy-bot-1 sh -c 'cat > /tmp/sample.ogg' < sample.ogg`
 
 **Changing a secret.** A change to the parameter alone does nothing: the bot reads its secrets from the volume.
 Edit the profile's `.env`, store it again, then seed it into the volume and restart the bot. The seeding step
@@ -383,9 +387,9 @@ stop the instance). One process polls a Telegram token.
   media cache (see "Voice notes and files"), but a compromised bot could fill the disk it shares with Docker:
   the Docker Desktop disk on a Mac, the instance's root disk on EC2.
 - Files from strangers. The Telegram adapter downloads an attachment, up to 20 MB, and holds it in memory
-  before the plugin can refuse the message. Documents are parsed in a separate process with a time and a
-  memory limit, and audio is decoded by ffmpeg, both inside the bot container: a flaw in a parser is contained
-  by the container, not by the plugin.
+  before the plugin can refuse the message. Documents are parsed, and scanned pages drawn, in a separate
+  process with a time and a memory limit, and audio is decoded by ffmpeg, all inside the bot container: a flaw
+  in a parser is contained by the container, not by the plugin.
 - What users send stays for a while: a file for a day in the media cache, and the text the model read in the
   conversation, both in the data volume.
 - Code that already runs as the bot user can change what the volume holds: the `.env`, the conversations, the

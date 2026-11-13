@@ -2636,6 +2636,7 @@ test = [
     { name = "asyncpg" },
     { name = "distlib", marker = "sys_platform == 'win32'" },
     { name = "pypdf" },
+    { name = "pypdfium2" },
 ]
 
 [package.metadata]
@@ -2827,6 +2828,7 @@ test = [
     { name = "asyncpg", specifier = "==0.32.0" },
     { name = "distlib", marker = "sys_platform == 'win32'", specifier = "==0.4.4" },
     { name = "pypdf", specifier = "==6.21.4" },
+    { name = "pypdfium2", specifier = "==5.14.0" },
 ]
 
 [[package]]

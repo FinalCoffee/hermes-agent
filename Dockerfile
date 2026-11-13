@@ -289,6 +289,8 @@ FROM runtime_base AS python_deps
 # The [documents] extra (python-docx, openpyxl, python-pptx, reportlab, pypdf;
 # ~25 MB) is baked so the microsoft-office and pdf skills work out of the box:
 # this venv is sealed and has no pip, so the agent could not add them itself.
+# The Accomy fork bakes [documents-pdf] as well, for pypdfium2: it draws the
+# scanned PDF pages that plugins/accomy_travel/ocr.py has the model read.
 #
 # Source binding is created after the source copy below. setup.py is copied here too: the
 # recorded selection's stamp hashes the packaging files, and must match the full tree copied below.
@@ -304,7 +306,7 @@ RUN python3 -m pm.build_env --source /opt/hermes --python /usr/local/bin/python3
     --out /opt/hermes/.venv --no-install-project --sealed --record-selection \
     --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock \
     --extra azure-identity --extra matrix --extra google-chat --extra fal --extra documents \
-    --extra postgres
+    --extra postgres --extra documents-pdf
 
 # Icons render on the runtime environment: Pillow and resvg-py are core
 # dependencies. A stage of its own so the frontend stage keeps building its

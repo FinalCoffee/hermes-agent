@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import os
 
-from . import _common, attachments, documents, speech
+from . import _common, attachments, documents, ocr, speech
 from ._common import ApiError, ToolSpec
 
 _CONTENT_NOTE = (
@@ -24,8 +24,9 @@ _SCHEMA = {
     "description": (
         "Read a file the user sent in this chat. Call it when a note in the conversation says a document, an "
         "audio file or a video was saved at a path and the request depends on what is in it. Returns the text "
-        "of a PDF, Word, Excel, PowerPoint or OpenDocument file, of a text, CSV, JSON, calendar (.ics) or web "
-        "page file and of a saved mail (.eml), or the words spoken in an audio file or a video. A long "
+        "of a PDF (a scanned one too), Word, Excel, PowerPoint or OpenDocument file, of a text, CSV, JSON, "
+        "calendar (.ics) or web page file and of a saved mail (.eml), or the words spoken in an audio file or "
+        "a video. A long "
         "document comes in parts: ask for the next part only when the answer needs it. Photos are not read "
         "here: you see them in the message. A voice message arrives already transcribed."),
     "parameters": {
@@ -105,12 +106,23 @@ def _document_hint(document: documents.Document, part: int, parts: int) -> str:
         hints.append(f"More follows: read part {part + 1} if the answer needs it.")
     if not document.complete:
         hints.append("The file is longer than what can be read: its end is left out.")
-    if document.empty_pages:
-        listed = ", ".join(str(number) for number in document.empty_pages[:20])
+    if document.scanned_pages:
         hints.append(
-            f"Pages with no text in them (scans or pictures): {listed}. Ask the user for a photo of a page "
-            "you need.")
+            f"Scanned pages read by character recognition: {_listed(document.scanned_pages)}. A character can "
+            "be misread: confirm a name, a number or a date with the user when the answer depends on it.")
+    if document.unread_pages:
+        why = {
+            ocr.ALLOWANCE: "today's allowance for scanned pages is used up",
+            ocr.FAILED: "they could not be read just now",
+        }.get(document.unread_why, f"only the first {ocr.PAGES_PER_FILE} scanned pages of a file are read")
+        hints.append(
+            f"Scanned pages not read: {_listed(document.unread_pages)} ({why}). Ask the user for a photo of a "
+            "page you need.")
     return " ".join(hints)
+
+
+def _listed(pages: tuple[int, ...]) -> str:
+    return ", ".join(str(page) for page in pages[:20]) + (" and more" if len(pages) > 20 else "")
 
 
 TOOLS: tuple[ToolSpec, ...] = (

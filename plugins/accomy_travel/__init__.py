@@ -13,8 +13,8 @@ from __future__ import annotations
 import functools
 
 from . import (
-    ingress, payment, policy, speech, tools_attachments, tools_events, tools_flights, tools_hotels, tools_orders,
-    tools_places, tools_research,
+    ingress, ocr, payment, policy, speech, tools_attachments, tools_events, tools_flights, tools_hotels,
+    tools_orders, tools_places, tools_research,
 )
 from ._common import TOOLSET, has_secrets
 from .orderstore import cli as orders_cli
@@ -34,4 +34,5 @@ def register(ctx) -> None:
     ctx.register_cli_command(orders_cli.COMMAND, orders_cli.HELP, orders_cli.setup, orders_cli.run)
     payment.configure(ctx)
     speech.configure(ctx)
+    ocr.configure(ctx)
     policy.register(ctx)

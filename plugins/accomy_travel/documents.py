@@ -1,8 +1,9 @@
 """The text of a document a user sent, read the way its kind needs.
 
 Plain text, tables, calendars and web pages are decoded here. A saved mail gives its headers and its body.
-A PDF and an office file are parsed by ``_document_worker.py`` in a process of its own, with a time limit:
-those parsers do real work on bytes a stranger chose. Nothing here opens a network connection.
+A PDF and an office file are parsed by ``_document_worker.py`` in a process of its own, with a time limit
+(``parsers``): those parsers do real work on bytes a stranger chose. A PDF page with no text in it is a scan,
+and ``ocr`` has the model read it. Nothing else here opens a network connection.
 
 A file contributes at most ``MAX_DOCUMENT_CHARS`` characters, and the tool hands them out ``PART_CHARS`` at
 a time, so one long file cannot fill a conversation.
@@ -12,17 +13,13 @@ from __future__ import annotations
 
 import email
 import email.policy
-import json
 import os
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from pathlib import Path
 
 from charset_normalizer import from_bytes
 
-from . import attachments
+from . import attachments, ocr, parsers
 from ._common import ApiError
 
 # One read returns this much, about 3,000 tokens. A whole file may give ten reads' worth.
@@ -32,17 +29,8 @@ MAX_DOCUMENT_CHARS = 10 * PART_CHARS
 _MAX_TEXT_BYTES = 4 * MAX_DOCUMENT_CHARS
 # How much of a file that is not UTF-8 is looked at to tell its encoding.
 _SNIFF_BYTES = 64 * 1024
-WORKER_TIMEOUT_SECONDS = 30.0
-_WORKER = Path(__file__).with_name("_document_worker.py")
-
-_UNREADABLE = {
-    "encrypted": "The file is protected by a password. Ask the user for a copy without one.",
-    "no_text": (
-        "The file holds scanned pages with no text in them. Ask the user to send those pages as photos or "
-        "screenshots, which you can see."),
-    "malformed": "The file is damaged or is not what its name says. Ask the user to send it again or as a PDF.",
-    "too_large": "The file is too large to read. Ask the user for the pages that matter, or a shorter file.",
-}
+# A scanned page is read only while a file has at least this much of MAX_DOCUMENT_CHARS left for its text.
+_SCAN_ROOM = 2_000
 
 
 @dataclass(frozen=True)
@@ -50,7 +38,9 @@ class Document:
     text: str
     complete: bool  # False when the file holds more than MAX_DOCUMENT_CHARS
     pages: int | None = None
-    empty_pages: tuple[int, ...] = field(default=())  # PDF pages with no text in them: scans or pictures
+    scanned_pages: tuple[int, ...] = field(default=())  # PDF pages that are scans and were read by the model
+    unread_pages: tuple[int, ...] = field(default=())  # scanned PDF pages that were not read
+    unread_why: str | None = None  # ocr.ALLOWANCE or ocr.FAILED, when that is why
 
 
 def read(path: str, kind: str) -> Document:
@@ -70,22 +60,42 @@ def read(path: str, kind: str) -> Document:
 
 
 def _parsed(path: str, kind: str) -> Document:
-    command = [sys.executable, "-I", str(_WORKER), kind, path, str(MAX_DOCUMENT_CHARS)]
-    try:
-        done = subprocess.run(
-            command, stdin=subprocess.DEVNULL, capture_output=True, timeout=WORKER_TIMEOUT_SECONDS, check=False)
-    except subprocess.TimeoutExpired as exc:
-        raise ApiError("unreadable_file", _UNREADABLE["too_large"]) from exc
-    try:
-        result = json.loads(done.stdout)
-    except ValueError as exc:  # the parser died before it could answer
-        raise ApiError("unreadable_file", _UNREADABLE["malformed"]) from exc
-    if "error" in result:
-        raise ApiError("unreadable_file", _UNREADABLE[result["error"]])
-    empty = tuple(result.get("empty_pages", ()))
-    if not result["text"].strip():
-        raise ApiError("unreadable_file", _UNREADABLE["no_text"] if empty else "The file has no text in it.")
-    return Document(text=result["text"], complete=result["complete"], pages=result.get("pages"), empty_pages=empty)
+    result = parsers.run(kind, path, MAX_DOCUMENT_CHARS)
+    if kind == attachments.OFFICE:
+        if not result["text"].strip():
+            raise ApiError("unreadable_file", "The file has no text in it.")
+        return Document(text=result["text"], complete=result["complete"])
+    by_page = {page: text for page, text in result["texts"]}
+    # A scanned page is read only while room is left for its text: past that it would be paid for and dropped.
+    readable, used = [], 0
+    for page in sorted([*by_page, *result["empty_pages"]]):
+        if page in by_page:
+            used += len(by_page[page])
+        elif used + _SCAN_ROOM <= MAX_DOCUMENT_CHARS:
+            readable.append(page)
+    left_out = len(readable) < len(result["empty_pages"])
+    scan = ocr.read(path, readable)
+    by_page.update({page: text for page, text in scan.texts.items() if text})
+    text, shown = "", []
+    for page in sorted(by_page):
+        if len(text) >= MAX_DOCUMENT_CHARS:
+            break
+        text += ("\n\n" if text else "") + f"[page {page}]\n{by_page[page]}"
+        shown.append(page)
+    if not text:
+        if scan.why == ocr.ALLOWANCE:
+            raise ApiError(
+                "rate_limited",
+                "Today's allowance for reading scanned pages is used up. Ask the user to send the page as a photo, "
+                "which you can see, or to type what matters.")
+        raise ApiError(
+            "unreadable_file", parsers.UNREADABLE["no_text"] if scan.unread else "The file has no text in it.")
+    return Document(
+        text=text[:MAX_DOCUMENT_CHARS],
+        complete=(
+            result["complete"] and not left_out and len(shown) == len(by_page) and len(text) <= MAX_DOCUMENT_CHARS),
+        pages=result["pages"], scanned_pages=tuple(page for page in shown if page in scan.texts),
+        unread_pages=scan.unread, unread_why=scan.why)
 
 
 def _decode(data: bytes) -> str:
@@ -149,7 +159,7 @@ def _mail(data: bytes) -> str:
             lines += ["", _page_text(content) if body.get_content_type() == "text/html" else content.strip()]
         attached = [part.get_filename() for part in message.iter_attachments() if part.get_filename()]
     except (LookupError, ValueError) as exc:  # a header or a body in an encoding the mail names but nobody knows
-        raise ApiError("unreadable_file", _UNREADABLE["malformed"]) from exc
+        raise ApiError("unreadable_file", parsers.UNREADABLE["malformed"]) from exc
     if attached:
         lines += ["", "Attached to the mail (not read): " + ", ".join(attached)]
     return "\n".join(lines)

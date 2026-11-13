@@ -179,6 +179,28 @@ def test_a_hotel_quote_places_a_simulated_order_in_usd_without_any_supplier_iden
     assert _count(orders, "SELECT count(*) FROM o_booking WHERE order_mode = 'SIMULATED'") == 1
 
 
+def test_placing_reading_and_cancelling_an_order_sends_no_request_to_any_supplier(orders, monkeypatch):
+    # With TMC credentials present, an order request would get as far as the transport, where it is recorded.
+    monkeypatch.setattr(_common, "secret", lambda key: DSN if key == db.DSN_ENV else (
+        "test-only" if key in (tmc_client.APP_KEY_ENV, tmc_client.APP_SECRET_ENV) else ""))
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(_common, "request_json", lambda method, url, **_kwargs: sent.append((method, url)))
+    with buyer():
+        items = [{"quote_id": _hotel_rate()["quote_id"]}, {"quote_id": _flight_offer()["quote_id"]},
+                 {"quote_id": _event_listing()["quote_id"], "quantity": 2}]
+        code = _ok(tools_orders.place_order({
+            "items": items, "contact": {"name": "Mei Lin", "email": "mei@example.com"},
+            "travellers": [{"given_name": "Mei", "family_name": "Lin"}]}))["booking_code"]
+        _ok(tools_orders.get_order({"booking_code": code}))
+        _ok(tools_orders.list_trips({}))
+        _ok(tools_orders.cancel_order({"booking_code": code}))
+
+    assert sent == []
+    assert _count(orders, "SELECT count(*) FROM o_booking_item") == 3
+    assert _count(orders, "SELECT count(*) FROM o_booking WHERE order_mode <> 'SIMULATED'") == 0
+    assert _count(orders, "SELECT count(*) FROM o_supplier_request") == 0
+
+
 def test_repeating_the_same_quotes_today_returns_the_same_order(orders):
     with buyer():
         rate = _hotel_rate()

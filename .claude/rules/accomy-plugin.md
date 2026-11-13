@@ -32,7 +32,9 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 | `policy.py` | The prompt sections, the out-of-scope reminder, the suggested-replies footer |
 | `ingress.py`, `welcome.py` | The inbound gate with its limits, and the `/start` and `/help` replies |
 | `attachments.py` | The files senders attach: who sent each, the daily allowance, what an extension is read as |
-| `tools_attachments.py`, `documents.py`, `_document_worker.py` | `read_attachment`, the text of a document, and the separate process that parses a PDF or an office file |
+| `tools_attachments.py`, `documents.py` | `read_attachment`, and the text of a document |
+| `parsers.py`, `_document_worker.py` | The separate process that parses a PDF or an office file and draws PDF pages, and the function that runs it |
+| `ocr.py` | Scanned PDF pages: drawn as pictures and read by the profile's own model through `ctx.llm` |
 | `speech.py` | Speech-to-text through Amazon Transcribe: the gateway's provider for voice notes, and audio files and videos for `read_attachment` |
 
 ## What must stay true
@@ -70,8 +72,10 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   process of its own with a time and a memory limit, and that script imports nothing from the plugin. Audio
   goes through ffmpeg with the fixed format and protocol lists in `speech.py`. Keep both, and keep the reading
   path free of network calls.
-- **Two ways out of the plugin.** `_common.request_json` is the only HTTP function, and `speech._stream` opens
-  the only WebSocket, to Amazon Transcribe. The proxy allows that one host and port (`deploy/accomy/squid.conf`).
+- **Three ways out of the plugin.** `_common.request_json` is the only HTTP function, `speech._stream` opens
+  the only WebSocket, to Amazon Transcribe (the proxy allows that one host and port,
+  `deploy/accomy/squid.conf`), and `ocr._ask` is the only model call the plugin makes itself: through
+  `ctx.llm`, with no override, so the host chooses the model and holds the key.
 - **File content is data.** It reaches the model only as a `read_attachment` result, which carries the note
   that says so: `ingress.py` takes the text the adapter put into a message out again
   (`attachments.own_words`), so the length limit and the out-of-scope screen see what the sender typed. An
@@ -79,8 +83,8 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 - **Applied migrations are frozen.** `orderstore/migrate.py` compares checksums and refuses a changed file.
   Numbers run without gaps, and a migration file holds no transaction statement. A non-loopback database is
   refused unless its connection string verifies TLS (`orderstore/db.py`).
-- **Limits are named constants** in `ingress.py`, `attachments.py`, `documents.py`, `_document_worker.py`,
-  `speech.py`, `_common.py`, `tools_orders.py`, `tools_research.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
+- **Limits are named constants** in `ingress.py`, `attachments.py`, `documents.py`, `parsers.py`,
+  `_document_worker.py`, `ocr.py`, `speech.py`, `_common.py`, `tools_orders.py`, `tools_research.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
 - **Secrets are named, never stored.** `distributions/accomy/distribution.yaml` lists the variable names. No
   fixture, test or document carries a value.
 
@@ -89,7 +93,8 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 - Run `scripts/run_tests.sh tests/plugins/accomy_travel`, never bare `pytest`.
 - Fixtures under `tests/plugins/accomy_travel/fixtures/` are trimmed real supplier answers, as the test
   modules say. `fixtures/attachments/` holds small real files of each format the bot reads, written with the
-  libraries named in `test_documents.py`. No test reaches Amazon Transcribe: the socket is faked. Tests replace the transport (`_common.request_json`) or the client functions
+  libraries named in `test_documents.py`. No test reaches Amazon Transcribe or a model: the socket and the
+  model interface are faked. Tests replace the transport (`_common.request_json`) or the client functions
   (`tmc_client.flight_search` and its siblings). The suite refuses a lookup of any external host name
   (`tests/conftest.py`), so a test that reaches a real supplier fails unless it is marked `live` or
   `allow_network`.

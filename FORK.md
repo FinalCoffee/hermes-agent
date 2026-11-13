@@ -159,7 +159,7 @@ Everything else behaves as upstream does until a key is set. These three effects
 | `scripts/boundary_lint_baseline.json` | 1, 2 | Imports that moved with the Telegram modules, and one new one |
 | `tests/gateway/` (9 new files), `tests/agent/test_operator_details.py` (new) | 1, 2, 3 | The tests of the three features |
 | `tests/gateway/test_prompt_opener_binding.py`, `test_skill_slash_native_boundary.py`, `test_stream_flood_frozen_preview.py`, `test_telegram_approval_buttons.py` | 1, 2 | Upstream tests adjusted to the changed hooks |
-| `pyproject.toml`, `uv.lock`, `Dockerfile` | Plugin | The `postgres` extra (asyncpg) for the order store, also in the test group and in the image. `pypdf` in the test group, for the plugin's PDF reading (the image has it through the `documents` extra) |
+| `pyproject.toml`, `uv.lock`, `Dockerfile` | Plugin | The `postgres` extra (asyncpg) for the order store, also in the test group and in the image. `pypdf` in the test group, for the plugin's PDF reading (the image has it through the `documents` extra). `pypdfium2`, which draws scanned PDF pages for the plugin to have read: in the test group, and in the image through the `documents-pdf` extra. Upstream leaves that extra out of its image, and the comment above it in `pyproject.toml` still says so |
 
 ## What exists only in the fork
 
@@ -168,7 +168,7 @@ Everything else behaves as upstream does until a key is set. These three effects
 | `plugins/accomy_travel/` | The plugin: 17 model tools (12 for search, 4 for orders, 1 that reads a file a user sent), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
 | `distributions/accomy/` | The operator profile: the model gets only the plugin's tools, photos, voice notes and files are read within daily limits, operator details are hidden, and the gateway messages an end user can reach are reworded or blanked |
 | `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda |
-| `tests/plugins/accomy_travel/` | 27 test files, 16 fixtures trimmed from real supplier answers, and 7 small sample files (PDF, office, audio) for the attachment tests |
+| `tests/plugins/accomy_travel/` | 28 test files, 16 fixtures trimmed from real supplier answers, and 8 small sample files (PDF, office, audio) for the attachment tests |
 
 Three properties of the plugin matter to anyone who changes it:
 
@@ -243,8 +243,8 @@ Regenerate these instead of merging them by hand:
   gateway message that names Hermes and the Accomy profile neither rewords it nor lists it as operator-only.
   Add it to `distributions/accomy/locales/en.yaml`.
 - **The plugin API.** The plugin imports `agent.secret_scope`, `agent.transcription_provider`,
-  `gateway.session_context`, `gateway.config` and `tools.registry`. If upstream moved one of these, the plugin
-  fails to load.
+  `gateway.session_context`, `gateway.config` and `tools.registry`, and it asks the host's model to read scanned
+  pages through `ctx.llm`. If upstream moved one of these, the plugin fails to load or scanned pages go unread.
 - **Attachments.** The plugin reads what the gateway hands it for a photo, a voice note or a file: the
   message's `media_urls` and `media_text_inlined`, the notes that name a saved path, and the transcription
   provider contract. `tests/plugins/accomy_travel/test_attachments.py`, `test_tools_attachments.py` and the

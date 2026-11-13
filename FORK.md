@@ -30,20 +30,21 @@ git diff --numstat main...develop        # per file
 
 ## The fork at a glance
 
-154 files differ from upstream: 21,394 lines added and 251 removed.
+180 files differ from upstream, not counting this file and the Claude Code rules in `.claude/`: 27,833 lines
+added and 251 removed.
 
 | Part | Files | Lines added | Lines removed |
 |---|---:|---:|---:|
 | Core code: `agent/`, `gateway/`, `plugins/platforms/`, `hermes_cli/`, `locales/` | 47 | 1,162 | 239 |
 | Tests of the core changes: `tests/gateway/`, `tests/agent/` | 14 | 2,288 | 3 |
-| Docs of the core changes: `website/docs/` | 3 | 55 | 0 |
-| Build: `pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/boundary_lint_baseline.json` | 4 | 46 | 9 |
-| Plugin: `plugins/accomy_travel/` | 30 | 7,359 | 0 |
-| Plugin tests: `tests/plugins/accomy_travel/` | 41 | 8,820 | 0 |
-| Profile: `distributions/accomy/` | 4 | 326 | 0 |
-| Deployment: `deploy/accomy/` | 11 | 1,338 | 0 |
+| Docs of the core changes: `website/docs/` | 3 | 57 | 0 |
+| Build: `pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/boundary_lint_baseline.json` | 4 | 54 | 9 |
+| Plugin: `plugins/accomy_travel/` | 37 | 9,050 | 0 |
+| Plugin tests: `tests/plugins/accomy_travel/` | 59 | 13,276 | 0 |
+| Profile: `distributions/accomy/` | 4 | 348 | 0 |
+| Deployment: `deploy/accomy/` | 12 | 1,598 | 0 |
 
-Nine commits carry it, oldest first:
+Fifteen commits carry the code, oldest first:
 
 | Commit | What it adds |
 |---|---|
@@ -56,6 +57,12 @@ Nine commits carry it, oldest first:
 | `d54b197e14` | Plugin: demonstration orders, customers and trips, the demo payment page |
 | `512542048e` | Plugin: the travel standard for hotel and flight search |
 | `cbe3896c0b` | Plugin: a test that an order sends no request to any supplier |
+| `266744927a` | Plugin: limits sized for about twenty people at once |
+| `99c86d39fd` | Plugin: a flight search waits 60 seconds for TMC |
+| `4676ec7b1a` | Deployment: the EC2 path, and how to operate the instance |
+| `1ad39f328c` | Plugin: the bot reads photos, voice notes and files |
+| `098db70745` | Plugin: scanned PDF pages are read |
+| `391501b525` | Plugin: flights are searched as round trips and multi-city trips |
 
 ## Changes to upstream code
 
@@ -165,7 +172,7 @@ Everything else behaves as upstream does until a key is set. These three effects
 
 | Part | What it is |
 |---|---|
-| `plugins/accomy_travel/` | The plugin: 17 model tools (12 for search, 4 for orders, 1 that reads a file a user sent), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
+| `plugins/accomy_travel/` | The plugin: 17 model tools (12 for search, 4 for orders, 1 that reads a file a user sent), flight search by round trip and multi-city trip, an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
 | `distributions/accomy/` | The operator profile: the model gets only the plugin's tools, photos, voice notes and files are read within daily limits, operator details are hidden, and the gateway messages an end user can reach are reworded or blanked |
 | `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda |
 | `tests/plugins/accomy_travel/` | 28 test files, 16 fixtures trimmed from real supplier answers, and 8 small sample files (PDF, office, audio) for the attachment tests |

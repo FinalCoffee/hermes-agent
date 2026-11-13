@@ -255,6 +255,8 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   and quotes that expire after 30 minutes. A refused order says why in the chat.
 - Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
 - Prices are converted with a fixed demo table of reference rates, so converted prices are approximate.
+- A supplier call waits 20 seconds for its answer. A flight search waits 60, because a route nobody has
+  searched lately takes TMC about 20 seconds to price.
 - Hotels and flights outside the travel standard are not offered and cannot be ordered (see Travel standard).
 - Supplier environments may be sandboxes, so prices and availability are indicative.
 - Google Routes is not enabled. Directions are Google Maps links.

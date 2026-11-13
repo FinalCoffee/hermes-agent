@@ -346,6 +346,22 @@ def test_missing_credentials_refuse_before_any_request(monkeypatch):
     assert fake.exchanges == []
 
 
+def test_a_flight_search_is_given_three_times_as_long_as_any_other_read(monkeypatch):
+    waits = {}
+
+    def transport(method, url, *, timeout, **_request):
+        path = url.split("?", 1)[0].removeprefix(tmc_client.BASE_URL + tmc_client.API_PREFIX)
+        waits[path] = timeout
+        return _token_ok() if path == "/auth/token" else (200, {"code": "0", "data": {}})
+
+    monkeypatch.setattr(_common, "request_json", transport)
+    tmc_client.flight_search({"tripType": 1})
+    tmc_client.flight_verify("price-key")
+
+    assert waits["/flight/search"] == 3 * _common.DEFAULT_TIMEOUT
+    assert waits["/flight/verify"] == waits["/auth/token"] == _common.DEFAULT_TIMEOUT
+
+
 def test_airport_lookup_is_cached_per_keyword(monkeypatch):
     rows = [{"cityCode": "TPE", "airports": []}]
     fake = _install(

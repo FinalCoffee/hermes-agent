@@ -46,6 +46,10 @@ _READ_ENDPOINTS = frozenset({
     ("POST", "/flight/verify"),
 })
 _HOTEL_DETAIL_PATH = re.compile(r"/hotel/[0-9]+")  # digits only: /hotel/order is the create-order endpoint
+# A flight search asks every fare source at once. With a production key it took about 20 seconds for a route
+# nobody had searched lately and returned some 500 fares, so it gets three times the default wait. Every other
+# read answers in a few seconds.
+_TIMEOUTS = {("POST", "/flight/search"): 3 * _common.DEFAULT_TIMEOUT}
 
 _SUCCESS_CODES = frozenset({"0", "SUCCESS"})
 _TOKEN_EXPIRED = "401"
@@ -157,7 +161,9 @@ def _send(
     if token:
         headers["token"] = token
     url = f"{BASE_URL}{full_path}" + (f"?{wire_query}" if wire_query else "")
-    return _common.request_json(method, url, headers=headers, content=payload or None)
+    return _common.request_json(
+        method, url, headers=headers, content=payload or None,
+        timeout=_TIMEOUTS.get((method, path), _common.DEFAULT_TIMEOUT))
 
 
 def _settle(status: int, envelope: Any) -> Any:

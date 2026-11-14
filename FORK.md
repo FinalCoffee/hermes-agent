@@ -20,7 +20,7 @@ adds have their own documents:
 | `main` | Upstream Hermes Agent, unmodified. It is the base the fork is measured against |
 | `develop` | The fork: `main` plus the commits below. Work is committed here and pushed to `origin` |
 
-The numbers in this document were taken at commit `cbe3896c0b`. To take them again:
+The numbers in this document were taken at commit `81029c8316`. To take them again:
 
 ```sh
 git log --oneline main..develop          # the fork's commits
@@ -30,7 +30,7 @@ git diff --numstat main...develop        # per file
 
 ## The fork at a glance
 
-180 files differ from upstream, not counting this file and the Claude Code rules in `.claude/`: 27,833 lines
+189 files differ from upstream, not counting this file and the Claude Code rules in `.claude/`: 30,187 lines
 added and 251 removed.
 
 | Part | Files | Lines added | Lines removed |
@@ -38,13 +38,13 @@ added and 251 removed.
 | Core code: `agent/`, `gateway/`, `plugins/platforms/`, `hermes_cli/`, `locales/` | 47 | 1,162 | 239 |
 | Tests of the core changes: `tests/gateway/`, `tests/agent/` | 14 | 2,288 | 3 |
 | Docs of the core changes: `website/docs/` | 3 | 57 | 0 |
-| Build: `pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/boundary_lint_baseline.json` | 4 | 54 | 9 |
-| Plugin: `plugins/accomy_travel/` | 37 | 9,050 | 0 |
-| Plugin tests: `tests/plugins/accomy_travel/` | 59 | 13,276 | 0 |
+| Build: `pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/boundary_lint_baseline.json` | 4 | 67 | 9 |
+| Plugin: `plugins/accomy_travel/` | 41 | 9,965 | 0 |
+| Plugin tests: `tests/plugins/accomy_travel/` | 64 | 14,525 | 0 |
 | Profile: `distributions/accomy/` | 4 | 348 | 0 |
-| Deployment: `deploy/accomy/` | 12 | 1,598 | 0 |
+| Deployment: `deploy/accomy/` | 12 | 1,775 | 0 |
 
-Fifteen commits carry the code, oldest first:
+Sixteen commits carry the code, oldest first:
 
 | Commit | What it adds |
 |---|---|
@@ -63,6 +63,7 @@ Fifteen commits carry the code, oldest first:
 | `1ad39f328c` | Plugin: the bot reads photos, voice notes and files |
 | `098db70745` | Plugin: scanned PDF pages are read |
 | `391501b525` | Plugin: flights are searched as round trips and multi-city trips |
+| `81029c8316` | Plugin: an order's statement as a PDF, sent in the chat and mailed after the demo payment |
 
 ## Changes to upstream code
 
@@ -166,16 +167,16 @@ Everything else behaves as upstream does until a key is set. These three effects
 | `scripts/boundary_lint_baseline.json` | 1, 2 | Imports that moved with the Telegram modules, and one new one |
 | `tests/gateway/` (9 new files), `tests/agent/test_operator_details.py` (new) | 1, 2, 3 | The tests of the three features |
 | `tests/gateway/test_prompt_opener_binding.py`, `test_skill_slash_native_boundary.py`, `test_stream_flood_frozen_preview.py`, `test_telegram_approval_buttons.py` | 1, 2 | Upstream tests adjusted to the changed hooks |
-| `pyproject.toml`, `uv.lock`, `Dockerfile` | Plugin | The `postgres` extra (asyncpg) for the order store, also in the test group and in the image. `pypdf` in the test group, for the plugin's PDF reading (the image has it through the `documents` extra). `pypdfium2`, which draws scanned PDF pages for the plugin to have read: in the test group, and in the image through the `documents-pdf` extra. Upstream leaves that extra out of its image, and the comment above it in `pyproject.toml` still says so |
+| `pyproject.toml`, `uv.lock`, `Dockerfile` | Plugin | The `postgres` extra (asyncpg) for the order store, also in the test group and in the image. `pypdf` in the test group, for the plugin's PDF reading (the image has it through the `documents` extra). `pypdfium2`, which draws scanned PDF pages for the plugin to have read: in the test group, and in the image through the `documents-pdf` extra. Upstream leaves that extra out of its image, and the comment above it in `pyproject.toml` still says so. `reportlab` in the test group, for the PDF statement of an order (the image has it through the `documents` extra), and in the image the font package `fonts-wqy-microhei`, installed by a step of its own, so that a statement can show Chinese, Japanese and Korean |
 
 ## What exists only in the fork
 
 | Part | What it is |
 |---|---|
-| `plugins/accomy_travel/` | The plugin: 17 model tools (12 for search, 4 for orders, 1 that reads a file a user sent), flight search by round trip and multi-city trip, an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
+| `plugins/accomy_travel/` | The plugin: 18 model tools (12 for search, 5 for orders, 1 that reads a file a user sent), flight search by round trip and multi-city trip, the PDF statement of an order (sent in the chat, and mailed after payment), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
 | `distributions/accomy/` | The operator profile: the model gets only the plugin's tools, photos, voice notes and files are read within daily limits, operator details are hidden, and the gateway messages an end user can reach are reworded or blanked |
-| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda |
-| `tests/plugins/accomy_travel/` | 28 test files, 16 fixtures trimmed from real supplier answers, and 8 small sample files (PDF, office, audio) for the attachment tests |
+| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda, which also mails a paid order's statement |
+| `tests/plugins/accomy_travel/` | 32 test files, 20 fixtures trimmed from real supplier answers, 8 small sample files (PDF, office, audio) for the attachment tests, and a 28-character cut of a font for the statement tests |
 
 Three properties of the plugin matter to anyone who changes it:
 

@@ -20,7 +20,7 @@ adds have their own documents:
 | `main` | Upstream Hermes Agent, unmodified. It is the base the fork is measured against |
 | `develop` | The fork: `main` plus the commits below. Work is committed here and pushed to `origin` |
 
-The numbers in this document were taken at commit `81029c8316`. To take them again:
+The numbers in this document were taken at commit `c9dad521ea`. To take them again:
 
 ```sh
 git log --oneline main..develop          # the fork's commits
@@ -30,7 +30,7 @@ git diff --numstat main...develop        # per file
 
 ## The fork at a glance
 
-189 files differ from upstream, not counting this file and the Claude Code rules in `.claude/`: 30,187 lines
+191 files differ from upstream, not counting this file and the Claude Code rules in `.claude/`: 31,265 lines
 added and 251 removed.
 
 | Part | Files | Lines added | Lines removed |
@@ -39,12 +39,12 @@ added and 251 removed.
 | Tests of the core changes: `tests/gateway/`, `tests/agent/` | 14 | 2,288 | 3 |
 | Docs of the core changes: `website/docs/` | 3 | 57 | 0 |
 | Build: `pyproject.toml`, `uv.lock`, `Dockerfile`, `scripts/boundary_lint_baseline.json` | 4 | 67 | 9 |
-| Plugin: `plugins/accomy_travel/` | 41 | 9,965 | 0 |
-| Plugin tests: `tests/plugins/accomy_travel/` | 64 | 14,525 | 0 |
+| Plugin: `plugins/accomy_travel/` | 42 | 10,326 | 0 |
+| Plugin tests: `tests/plugins/accomy_travel/` | 65 | 15,209 | 0 |
 | Profile: `distributions/accomy/` | 4 | 348 | 0 |
-| Deployment: `deploy/accomy/` | 12 | 1,775 | 0 |
+| Deployment: `deploy/accomy/` | 12 | 1,808 | 0 |
 
-Sixteen commits carry the code, oldest first:
+Seventeen commits carry the code, oldest first:
 
 | Commit | What it adds |
 |---|---|
@@ -64,6 +64,7 @@ Sixteen commits carry the code, oldest first:
 | `098db70745` | Plugin: scanned PDF pages are read |
 | `391501b525` | Plugin: flights are searched as round trips and multi-city trips |
 | `81029c8316` | Plugin: an order's statement as a PDF, sent in the chat and mailed after the demo payment |
+| `c9dad521ea` | Plugin: the payment page and the PDF statement are written in the language of the conversation |
 
 ## Changes to upstream code
 
@@ -173,10 +174,10 @@ Everything else behaves as upstream does until a key is set. These three effects
 
 | Part | What it is |
 |---|---|
-| `plugins/accomy_travel/` | The plugin: 18 model tools (12 for search, 5 for orders, 1 that reads a file a user sent), flight search by round trip and multi-city trip, the PDF statement of an order (sent in the chat, and mailed after payment), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
+| `plugins/accomy_travel/` | The plugin: 18 model tools (12 for search, 5 for orders, 1 that reads a file a user sent), flight search by round trip and multi-city trip, the PDF statement of an order (sent in the chat, and mailed after payment; written, like the payment page, in the language of the conversation, in one of five), an inbound gate with usage limits, the prompt sections that make the assistant a travel assistant, the order store, the travel standard, and speech-to-text for voice notes through Amazon Transcribe |
 | `distributions/accomy/` | The operator profile: the model gets only the plugin's tools, photos, voice notes and files are read within daily limits, operator details are hidden, and the gateway messages an end user can reach are reworded or blanked |
-| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda, which also mails a paid order's statement |
-| `tests/plugins/accomy_travel/` | 32 test files, 20 fixtures trimmed from real supplier answers, 8 small sample files (PDF, office, audio) for the attachment tests, and a 28-character cut of a font for the statement tests |
+| `deploy/accomy/` | A container deployment in which the bot reaches only the hosts on an allowlist, the scripts that put it on an AWS EC2 instance and operate it there, and a demo payment page on AWS Lambda in five languages, which also mails a paid order's statement |
+| `tests/plugins/accomy_travel/` | 32 test files, 20 fixtures trimmed from real supplier answers, 8 small sample files (PDF, office, audio) for the attachment tests, and a cut of a font for the statement tests, with its licence, that holds the characters of the statement's words |
 
 Three properties of the plugin matter to anyone who changes it:
 

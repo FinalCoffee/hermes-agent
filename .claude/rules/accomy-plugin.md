@@ -29,7 +29,7 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 | `quotes.py` | What each caller was shown, under short quote ids, and the flights picked so far in a trip |
 | `tools_orders.py`, `orderbridge.py`, `orderstore/` | Demonstration orders in PostgreSQL: connection, migrations, store, operator CLI |
 | `payment.py` | Signed links to the demo payment page, and the void and status requests to it |
-| `statement.py`, `statement_pdf.py`, `statement_files.py`, `assets/` | The PDF statement of an order: what it says, how it is drawn (with the logo), and where its file is kept and for how long |
+| `statement.py`, `statement_text.py`, `statement_pdf.py`, `statement_files.py`, `assets/` | The PDF statement of an order: what it says, its words in each language, how it is drawn (with the logo), and where its file is kept and for how long |
 | `policy.py` | The prompt sections, the out-of-scope reminder, the suggested-replies footer |
 | `ingress.py`, `welcome.py` | The inbound gate with its limits, and the `/start` and `/help` replies |
 | `attachments.py` | The files senders attach: who sent each, the daily allowance, what an extension is read as |
@@ -47,15 +47,16 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   `test_tools_orders.py::test_placing_reading_and_cancelling_an_order_sends_no_request_to_any_supplier`.
 - **An order is built from quotes.** The items of `place_order` are quote ids, with a quantity for event
   tickets. The price and the facts of an order come from what a search tool showed that caller (`quotes.py`),
-  never from a number the model types. The model supplies only the travellers, the contact and the trip. The
-  buyer is the session actor the gateway bound, never model output.
+  never from a number the model types. The model supplies only the travellers, the contact, the trip and the
+  language of the conversation. The buyer is the session actor the gateway bound, never model output.
 - **A journey out and back is one trip.** `search_flights` searches a round trip (`return_date`) or a
   multi-city trip (`more_legs`) as one supplier search, answered a leg at a time: an earlier leg's flight gets an
   `option_id` (`quotes.FLIGHT_CHOICE`), which only `continue_from` accepts, and the last leg's flight gets the
   quote of the whole trip. Keep the two ids apart: an `option_id` is never orderable. The live price of a trip
   goes through `tmc_client.flight_fares` and then verify, because verify refuses the search's own key.
 - **A statement never passes for a ticket.** `statement_pdf.py` prints the demonstration notice on every
-  page, and `get_order_pdf` refuses an order that is not confirmed. Every text of an order reaches the page
+  page, in the language the statement is written in, and `get_order_pdf` refuses an order that is not
+  confirmed. Every text of an order reaches the page
   through `statement_pdf.markup`, which escapes it: reportlab's paragraph markup can load a picture from a
   path. The file is saved by `statement_files.save` in a folder with a random name under the gateway's document
   cache: never under a name that follows from the booking code, which a user may have shared. It holds
@@ -67,6 +68,21 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   unable to fail an order. The page holds its own copy of that address pattern and of the size limit
   (`deploy/accomy/payment-demo/handler.py`): change each pair together. No text of the buyer's goes into the
   mail outside the PDF.
+- **What is written for the user is in the language of the conversation.** The payment page and the PDF
+  statement are written in the `language` the model gives `place_order`, `get_order` and `get_order_pdf`: one
+  of `payment.PAGE_LANGUAGES`, and English for any other or for none. It belongs to the request and is never
+  stored with the order (the order's `locale` is part of the fingerprint that makes a repeated order a
+  replay). The page's `LANGUAGES` and the keys of `statement_text.WORDS` are the same list: change the three
+  together.
+- **Neither holds a word in the wrong language.** What the bot puts into a payment link holds no word of its
+  own: an item's title and `tools_orders._details` carry names, codes, dates and numbers, a route is written
+  with an arrow, and the kind of a trip is its code. The page (`deploy/accomy/payment-demo/handler.py`) has a
+  label for every detail key and a word for every kind of trip in each of its languages: a new key or kind
+  needs both in the same change, and
+  `test_payment.py::test_the_page_has_its_own_words_for_everything_an_order_says_about_an_item` fails without
+  them. Every word of the statement is in `statement_text.py`, in each language under the same keys;
+  `statement.py` and `statement_pdf.py` hold none. The page is deployed apart from the bot, and before it
+  when a link gains something new.
 - **Prices are in US dollars.** Tools return prices through `fx.py`. A price in a currency the table lacks is
   marked `unconverted` and cannot be ordered.
 - **The travel standard has one source.** Its numbers live in `standard.py`. The tools leave out what is

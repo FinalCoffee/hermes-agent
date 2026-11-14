@@ -2,10 +2,10 @@
 
 The bot gives a traveller a link that carries a signed token: the order with every item being paid for,
 the total, and which Telegram chat to tell. ``GET /p/<token>`` shows that order, item by item, in the
-visitor's language (from the browser, or chosen on the page), says plainly that it is a demonstration
-and accepts only Airwallex's public test card. The card number is checked in the browser and never sent
-here. Pressing Pay sends ``POST /p/<token>``, and this function then sends that chat a real Telegram
-message saying the (demo) payment went through.
+visitor's language (the one chosen on the page, else the language of the conversation, else the browser's),
+says plainly that it is a demonstration and accepts only Airwallex's public test card. The card number is
+checked in the browser and never sent here. Pressing Pay sends ``POST /p/<token>``, and this function then
+sends that chat a real Telegram message saying the (demo) payment went through.
 
 One small table remembers, per order code, whether it was PAID or VOID, so an order is paid once and a
 cancelled order cannot be paid. The bot voids an order when it cancels it (``POST /v/<token>``) and asks
@@ -68,7 +68,10 @@ _HEADERS = {
         "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"),
 }
 
-# Every language the page speaks.
+# Every language the page speaks. The bot holds the same list (PAGE_LANGUAGES in plugins/accomy_travel/payment.py)
+# and names one of them in a link. Each language says everything the page shows about an order: a label for
+# every detail the bot sends (``field``) and a word for every kind of trip (``trip_kind``). The rest of a line
+# is names, codes, dates and numbers, which the bot sends without a word of its own.
 LANGUAGES = {"zh-Hant": "繁體中文", "zh-Hans": "简体中文", "en": "English", "ja": "日本語", "ko": "한국어"}
 _TEXT = {
     "zh-Hant": {
@@ -76,14 +79,15 @@ _TEXT = {
         "banner": "示範整合付款：這是測試環境，不會實際扣款。請勿輸入真實卡號。",
         "trip": "行程", "order": "訂單編號", "items": "付款項目", "tap": "點選項目可查看明細",
         "total": "應付總額", "approx": "約略換算自", "check": "請確認以上內容與您在 Telegram 中確認的訂單相符。如有不符，請不要付款，並回到 Telegram 告知助理。",
-        "card": "卡號", "expiry": "有效期限", "cvc": "安全碼", "hint": "請使用 Airwallex 測試卡號", "fill": "填入測試卡號",
+        "card": "卡號", "expiry": "有效期限", "cvc": "安全碼", "hint": "請使用 Airwallex 測試卡號：", "fill": "填入測試卡號",
         "pay": "付款", "wrong": "示範環境只接受上方的測試卡號。請勿輸入真實卡號。", "paying": "處理中…",
         "done": "付款完成（示範）", "done_note": "已傳送通知到您的 Telegram，可以關閉此頁面。",
         "failed": "暫時無法完成，請稍後再試。", "cancelled": "這筆訂單已取消，無需付款。", "paid": "這筆訂單已完成付款（示範）。",
         "expired": "這個付款連結已失效，請回到 Telegram 重新取得。",
         "kind": {"HOTEL": "住宿", "FLIGHT": "機票", "EVENT_TICKET": "活動門票"},
+        "trip_kind": {"ROUND_TRIP": "來回", "MULTI_CITY": "多個城市"},
         "field": {"hotel": "飯店", "room": "房型", "check_in": "入住", "check_out": "退房", "nights": "晚數",
-                  "guests": "入住人數", "rooms": "房間數", "passengers": "旅客人數", "flights": "航班",
+                  "guests": "入住人數", "rooms": "房間數", "trip": "行程類型", "passengers": "旅客人數", "flights": "航班",
                   "event": "活動", "venue": "場地", "category": "票種", "starts_local": "開始時間（當地）",
                   "tickets": "張數", "quantity": "數量", "amount": "金額", "cancellation": "取消規定"},
         "message": "✅ 付款完成（示範）\n訂單 {code}\n{name}\n金額 {currency} {amount}\n\n這是示範付款，未實際扣款。",
@@ -96,14 +100,15 @@ _TEXT = {
         "banner": "演示集成付款：这是测试环境，不会实际扣款。请勿输入真实卡号。",
         "trip": "行程", "order": "订单编号", "items": "付款项目", "tap": "点击项目可查看明细",
         "total": "应付总额", "approx": "约略换算自", "check": "请确认以上内容与您在 Telegram 中确认的订单一致。如有不符，请不要付款，并回到 Telegram 告知助理。",
-        "card": "卡号", "expiry": "有效期", "cvc": "安全码", "hint": "请使用 Airwallex 测试卡号", "fill": "填入测试卡号",
+        "card": "卡号", "expiry": "有效期", "cvc": "安全码", "hint": "请使用 Airwallex 测试卡号：", "fill": "填入测试卡号",
         "pay": "付款", "wrong": "演示环境只接受上方的测试卡号。请勿输入真实卡号。", "paying": "处理中…",
         "done": "付款完成（演示）", "done_note": "已发送通知到您的 Telegram，可以关闭此页面。",
         "failed": "暂时无法完成，请稍后再试。", "cancelled": "这笔订单已取消，无需付款。", "paid": "这笔订单已完成付款（演示）。",
         "expired": "这个付款链接已失效，请回到 Telegram 重新获取。",
         "kind": {"HOTEL": "住宿", "FLIGHT": "机票", "EVENT_TICKET": "活动门票"},
+        "trip_kind": {"ROUND_TRIP": "往返", "MULTI_CITY": "多程"},
         "field": {"hotel": "酒店", "room": "房型", "check_in": "入住", "check_out": "退房", "nights": "晚数",
-                  "guests": "入住人数", "rooms": "房间数", "passengers": "旅客人数", "flights": "航班",
+                  "guests": "入住人数", "rooms": "房间数", "trip": "行程类型", "passengers": "旅客人数", "flights": "航班",
                   "event": "活动", "venue": "场地", "category": "票种", "starts_local": "开始时间（当地）",
                   "tickets": "张数", "quantity": "数量", "amount": "金额", "cancellation": "取消规定"},
         "message": "✅ 付款完成（演示）\n订单 {code}\n{name}\n金额 {currency} {amount}\n\n这是演示付款，未实际扣款。",
@@ -116,14 +121,15 @@ _TEXT = {
         "banner": "Demo payment integration: this is a test environment and nothing is charged. Do not enter a real card.",
         "trip": "Trip", "order": "Order", "items": "What you are paying for", "tap": "Tap an item to see its details",
         "total": "Total due", "approx": "approx., converted from", "check": "Check that this matches the order you confirmed in Telegram. If anything differs, do not pay: go back to Telegram and tell the assistant.",
-        "card": "Card number", "expiry": "Expiry", "cvc": "CVC", "hint": "Use the Airwallex test card", "fill": "Fill in the test card",
+        "card": "Card number", "expiry": "Expiry", "cvc": "CVC", "hint": "Use the Airwallex test card: ", "fill": "Fill in the test card",
         "pay": "Pay", "wrong": "The demo accepts only the test card above. Do not enter a real card.", "paying": "Processing…",
         "done": "Payment complete (demo)", "done_note": "A notice was sent to your Telegram. You can close this page.",
         "failed": "That did not go through. Please try again shortly.", "cancelled": "This order was cancelled. There is nothing to pay.", "paid": "This order has already been paid (demo).",
         "expired": "This payment link has expired. Ask for a new one in Telegram.",
         "kind": {"HOTEL": "Hotel", "FLIGHT": "Flight", "EVENT_TICKET": "Event tickets"},
+        "trip_kind": {"ROUND_TRIP": "Round trip", "MULTI_CITY": "Multi-city"},
         "field": {"hotel": "Hotel", "room": "Room", "check_in": "Check-in", "check_out": "Check-out", "nights": "Nights",
-                  "guests": "Guests", "rooms": "Rooms", "passengers": "Passengers", "flights": "Flights",
+                  "guests": "Guests", "rooms": "Rooms", "trip": "Trip type", "passengers": "Passengers", "flights": "Flights",
                   "event": "Event", "venue": "Venue", "category": "Category", "starts_local": "Starts (local time)",
                   "tickets": "Tickets", "quantity": "Quantity", "amount": "Amount", "cancellation": "Cancellation"},
         "message": "✅ Payment complete (demo)\nOrder {code}\n{name}\nAmount {currency} {amount}\n\nThis was a demonstration payment: nothing was charged.",
@@ -136,14 +142,15 @@ _TEXT = {
         "banner": "デモ決済：これはテスト環境で、実際の請求は発生しません。本物のカード番号は入力しないでください。",
         "trip": "旅程", "order": "注文番号", "items": "お支払い内容", "tap": "項目をタップすると詳細を表示します",
         "total": "お支払い合計", "approx": "概算、換算元", "check": "Telegram で確認したご注文と同じ内容かご確認ください。異なる場合は支払わず、Telegram でアシスタントにお知らせください。",
-        "card": "カード番号", "expiry": "有効期限", "cvc": "セキュリティコード", "hint": "Airwallex のテストカード番号をご利用ください", "fill": "テストカード番号を入力",
+        "card": "カード番号", "expiry": "有効期限", "cvc": "セキュリティコード", "hint": "Airwallex のテストカード番号をご利用ください：", "fill": "テストカード番号を入力",
         "pay": "支払う", "wrong": "デモでは上記のテストカード番号のみ利用できます。本物のカード番号は入力しないでください。", "paying": "処理中…",
         "done": "お支払い完了（デモ）", "done_note": "Telegram に通知を送信しました。このページは閉じて構いません。",
         "failed": "完了できませんでした。しばらくしてからもう一度お試しください。", "cancelled": "この注文はキャンセルされました。お支払いは不要です。", "paid": "この注文はお支払い済みです（デモ）。",
         "expired": "この支払いリンクは無効になりました。Telegram で新しいリンクを取得してください。",
         "kind": {"HOTEL": "宿泊", "FLIGHT": "航空券", "EVENT_TICKET": "イベントチケット"},
+        "trip_kind": {"ROUND_TRIP": "往復", "MULTI_CITY": "複数都市"},
         "field": {"hotel": "ホテル", "room": "部屋タイプ", "check_in": "チェックイン", "check_out": "チェックアウト", "nights": "泊数",
-                  "guests": "宿泊人数", "rooms": "部屋数", "passengers": "搭乗者数", "flights": "フライト",
+                  "guests": "宿泊人数", "rooms": "部屋数", "trip": "旅程タイプ", "passengers": "搭乗者数", "flights": "フライト",
                   "event": "イベント", "venue": "会場", "category": "席種", "starts_local": "開始時刻（現地）",
                   "tickets": "枚数", "quantity": "数量", "amount": "金額", "cancellation": "キャンセル規定"},
         "message": "✅ お支払い完了（デモ）\n注文 {code}\n{name}\n金額 {currency} {amount}\n\nこれはデモ決済で、実際の請求は発生していません。",
@@ -156,14 +163,15 @@ _TEXT = {
         "banner": "데모 결제 연동: 테스트 환경이며 실제로 결제되지 않습니다. 실제 카드 번호를 입력하지 마세요.",
         "trip": "여행", "order": "주문 번호", "items": "결제 항목", "tap": "항목을 누르면 상세 내용을 볼 수 있습니다",
         "total": "결제 금액", "approx": "대략, 환산 기준", "check": "Telegram에서 확인한 주문과 같은지 확인해 주세요. 다르면 결제하지 말고 Telegram에서 어시스턴트에게 알려 주세요.",
-        "card": "카드 번호", "expiry": "유효 기간", "cvc": "보안 코드", "hint": "Airwallex 테스트 카드 번호를 사용하세요", "fill": "테스트 카드 번호 입력",
+        "card": "카드 번호", "expiry": "유효 기간", "cvc": "보안 코드", "hint": "Airwallex 테스트 카드 번호를 사용하세요: ", "fill": "테스트 카드 번호 입력",
         "pay": "결제", "wrong": "데모에서는 위의 테스트 카드 번호만 사용할 수 있습니다. 실제 카드 번호를 입력하지 마세요.", "paying": "처리 중…",
         "done": "결제 완료(데모)", "done_note": "Telegram으로 알림을 보냈습니다. 이 페이지를 닫아도 됩니다.",
         "failed": "완료하지 못했습니다. 잠시 후 다시 시도해 주세요.", "cancelled": "이 주문은 취소되었습니다. 결제할 내용이 없습니다.", "paid": "이 주문은 이미 결제되었습니다(데모).",
         "expired": "이 결제 링크는 만료되었습니다. Telegram에서 새 링크를 받아 주세요.",
         "kind": {"HOTEL": "숙박", "FLIGHT": "항공권", "EVENT_TICKET": "이벤트 티켓"},
+        "trip_kind": {"ROUND_TRIP": "왕복", "MULTI_CITY": "다구간"},
         "field": {"hotel": "호텔", "room": "객실", "check_in": "체크인", "check_out": "체크아웃", "nights": "숙박 일수",
-                  "guests": "투숙 인원", "rooms": "객실 수", "passengers": "탑승객 수", "flights": "항공편",
+                  "guests": "투숙 인원", "rooms": "객실 수", "trip": "여정 유형", "passengers": "탑승객 수", "flights": "항공편",
                   "event": "이벤트", "venue": "장소", "category": "좌석 종류", "starts_local": "시작 시간(현지)",
                   "tickets": "매수", "quantity": "수량", "amount": "금액", "cancellation": "취소 규정"},
         "message": "✅ 결제 완료(데모)\n주문 {code}\n{name}\n금액 {currency} {amount}\n\n데모 결제이며 실제로 결제되지 않았습니다.",
@@ -184,8 +192,9 @@ def _b64(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
 
-def read_token(token: str, key: str, now: float, act: str = "pay") -> dict | None:
-    """The claims of a link the bot signed for *act* and that has not expired; None for anything else."""
+def _signed(token: str, key: str) -> dict | None:
+    """The claims of a token the bot signed, whatever it was signed for and however old it is; None for anything
+    else."""
     try:
         version, body, signature = token.split(".")
         expected = hmac.new(key.encode(), f"{version}.{body}".encode(), hashlib.sha256).digest()
@@ -196,17 +205,29 @@ def read_token(token: str, key: str, now: float, act: str = "pay") -> dict | Non
         if inflater.unconsumed_tail:
             return None
         claims = json.loads(raw)
-        # A payment link must never work as a void or a status request, nor the other way round.
-        return claims if float(claims["exp"]) > now and claims.get("act", "pay") == act and claims["code"] else None
-    except (ValueError, KeyError, TypeError, zlib.error):
+        return claims if isinstance(claims, dict) else None
+    except (ValueError, TypeError, zlib.error):
         return None
 
 
-def pick_language(asked: str | None, accept: str | None, default: str | None) -> str:
-    """The language chosen on the page, else the first one the browser lists that the page speaks, else
-    the link's, else English."""
-    if asked in LANGUAGES:
-        return asked
+def read_token(token: str, key: str, now: float, act: str = "pay") -> dict | None:
+    """The claims of a link the bot signed for *act* and that has not expired; None for anything else."""
+    claims = _signed(token, key)
+    try:
+        # A payment link must never work as a void or a status request, nor the other way round.
+        return claims if (claims is not None and float(claims["exp"]) > now and claims.get("act", "pay") == act
+                          and claims["code"]) else None
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def pick_language(asked: str | None, accept: str | None, linked: str | None) -> str:
+    """The language chosen on the page, else the link's, which is the language of the conversation the link was
+    given in, else the first one the browser lists that the page speaks, else English. The bot names a language
+    in every link, so the browser decides only for what is not a readable link of the bot's."""
+    for wanted in (asked, linked):
+        if isinstance(wanted, str) and wanted in LANGUAGES:
+            return wanted
     for part in (accept or "").split(","):
         tag = part.split(";")[0].strip().lower()
         if tag.startswith("zh"):
@@ -214,7 +235,7 @@ def pick_language(asked: str | None, accept: str | None, default: str | None) ->
         for code in ("en", "ja", "ko"):
             if tag.startswith(code):
                 return code
-    return default if default in LANGUAGES else "en"
+    return "en"
 
 
 def _reply(status: int, body: str, content_type: str = "text/html; charset=utf-8") -> dict:
@@ -228,17 +249,20 @@ def _notice(title: str, message: str, status: int) -> dict:
                           f"<p>{html.escape(message)}</p>")
 
 
-def _value(value) -> str:
-    """One detail value as HTML: a list (the flights of an itinerary) is one line each."""
+def _value(text: dict, key: str, value) -> str:
+    """One detail value as HTML: a list (the flights of an itinerary) is one line each, and the kind of a trip
+    is a code that is said in the page's language."""
     if isinstance(value, list):
         return "<br>".join(html.escape(str(entry)) for entry in value)
+    if key == "trip":
+        value = text["trip_kind"].get(value, value)
     return html.escape(str(value))
 
 
 def _item(text: dict, item: dict, currency: str, opened: bool) -> str:
     """One thing being paid for: a line that opens to show everything the order recorded about it."""
     amount = f"{html.escape(currency)} {html.escape(str(item['amount']))}"
-    rows = [(text["field"].get(key, key), _value(value)) for key, value in item.get("details", {}).items()]
+    rows = [(text["field"].get(key, key), _value(text, key, value)) for key, value in item.get("details", {}).items()]
     if item.get("quantity", 1) != 1 and "tickets" not in item.get("details", {}):
         rows.append((text["field"]["quantity"], html.escape(str(item["quantity"]))))
     source = item.get("supplier_price")
@@ -288,7 +312,7 @@ td{{padding:.15rem 0;overflow-wrap:anywhere}}td small{{color:var(--soft)}}
 label{{display:block;font-size:.85rem;color:var(--soft);margin:.8rem 0 .25rem}}
 input{{width:100%;font:inherit;padding:.65rem .7rem;border:1px solid var(--line);border-radius:.5rem;background:transparent;color:inherit}}
 .two{{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}}
-.hint{{font-size:.85rem;color:var(--soft);margin-top:.6rem}}.hint code{{color:var(--ink);font-weight:600}}
+.hint{{font-size:.85rem;color:var(--soft);margin-top:.6rem}}.hint code{{color:var(--ink);font-weight:600;white-space:nowrap}}
 button{{font:inherit;border:0;border-radius:.6rem;cursor:pointer}}
 #fill{{background:none;color:var(--go);padding:.2rem 0;text-decoration:underline}}
 #pay{{width:100%;margin-top:1rem;padding:.85rem;background:var(--go);color:#fff;font-weight:700;font-size:1.05rem}}#pay:disabled{{opacity:.6}}
@@ -310,7 +334,7 @@ button{{font:inherit;border:0;border-radius:.6rem;cursor:pointer}}
 <label for="card">{t['card']}</label><input id="card" inputmode="numeric" placeholder="{pretty_card}" maxlength="23">
 <div class="two"><div><label for="exp">{t['expiry']}</label><input id="exp" inputmode="numeric" placeholder="12 / 30" maxlength="7"></div>
 <div><label for="cvc">{t['cvc']}</label><input id="cvc" inputmode="numeric" placeholder="123" maxlength="4"></div></div>
-<div class="hint">{t['hint']}: <code>{pretty_card}</code><br><button type="button" id="fill">{t['fill']}</button></div>
+<div class="hint">{t['hint']}<code>{pretty_card}</code><br><button type="button" id="fill">{t['fill']}</button></div>
 <button id="pay">{t['pay']} {total}</button><div id="msg" role="alert"></div></form>
 <div class="box" id="done"{' style="display:block"' if paid else ''}><div class="tick">✅</div><h1>{t['done']}</h1><p>{t['paid'] if paid else t['done_note']}</p></div>
 </main>
@@ -480,7 +504,9 @@ def handler(event, _context):
         return _notice("Accomy", "Accomy demo payment page.", 404)
     claims = read_token(token, key, time.time())
     if claims is None:
-        text = _TEXT[pick_language(asked, headers.get("accept-language"), None)]
+        # A link past its day is still the bot's own, and says in which language its order was talked about.
+        linked = (_signed(token, key) or {}).get("lang")
+        text = _TEXT[pick_language(asked, headers.get("accept-language"), linked)]
         return _notice(text["title"], text["expired"], 410)
     language = pick_language(asked, headers.get("accept-language"), claims.get("lang"))
     text = _TEXT[language]

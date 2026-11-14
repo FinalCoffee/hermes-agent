@@ -3,10 +3,11 @@
 import base64
 import importlib.util
 import json
+import re
 import shutil
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from email import message_from_bytes, policy
 from pathlib import Path
@@ -15,7 +16,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from hermes_cli import plugins as pmod
-from plugins.accomy_travel import _common, payment
+from plugins.accomy_travel import _common, payment, tools_orders
 from plugins.accomy_travel.orderstore import store
 
 REPO = Path(__file__).resolve().parents[3]
@@ -84,11 +85,11 @@ def _call(page, method, url, lang=None, accept=None, body=None):
         "headers": {"accept-language": accept} if accept else {}}, None)
 
 
-def _booking(status="CONFIRMED", chat="5550123", created=None):
+def _booking(status="CONFIRMED", chat="5550123", created=None, items=()):
     return store.Booking(
         id=1, code="AC0123456789AB", buyer=store.Buyer("telegram", "5550123", chat), contact=store.Contact("Mei Lin"),
         locale="zh-TW", currency="USD", status=status, total_amount=Decimal("1330.50"), version=1,
-        created_at=created or datetime.now(UTC), order_mode="SIMULATED",
+        created_at=created or datetime.now(UTC), order_mode="SIMULATED", items=items,
         trip=store.Trip("TR0123456789AB", "東京賞櫻 <b>", None, None, "ACTIVE"))
 
 
@@ -118,6 +119,103 @@ def test_the_page_speaks_the_visitors_language_and_the_one_they_choose(configure
     body = _call(page, "GET", payment.link(_booking(), ITEMS), lang=lang, accept=accept)["body"]
 
     assert expected in body and all(f'value="{code}"' in body for code in page.LANGUAGES)
+
+
+def test_the_bot_names_a_language_from_the_ones_the_page_speaks(page):
+    assert set(payment.PAGE_LANGUAGES) == set(page.LANGUAGES)
+
+
+@pytest.mark.parametrize(("talked_in", "chosen", "browser", "expected"), [
+    ("ja", None, "en-US,en;q=0.9", "デモ決済"),         # the conversation's language, whatever the phone is set to
+    ("zh-Hant", None, "en-US", "示範整合付款"),
+    ("en", None, "zh-TW,zh;q=0.9", "Demo payment integration"),
+    ("ja", "ko", "en-US", "데모 결제 연동"),            # what the visitor chooses on the page comes first
+    (None, None, "zh-TW", "示範整合付款"),              # a link that names no language: the browser's
+    ("fr", None, "ja-JP", "デモ決済"),                  # a language the page does not speak is none to it
+])
+def test_the_page_opens_in_the_language_of_the_conversation(configured, page, talked_in, chosen, browser, expected):
+    url = payment.link(_booking(), ITEMS, language=talked_in)
+
+    assert expected in _call(page, "GET", url, lang=chosen, accept=browser)["body"]
+
+
+def test_a_link_past_its_day_says_so_in_the_language_of_the_conversation(configured, page):
+    placed = datetime.fromtimestamp(time.time() - 25 * 3600, UTC)
+    old = payment.link(_booking(created=placed), ITEMS, language="ja", now=time.time() - 2 * 3600)
+
+    late = _call(page, "GET", old, accept="en-US")
+
+    assert late["statusCode"] == 410 and "この支払いリンクは無効になりました" in late["body"]
+    # A token nobody signed says nothing of a language: the browser's.
+    forged = old[:-4] + ("AAAA" if not old.endswith("AAAA") else "BBBB")
+    assert "This payment link has expired" in _call(page, "GET", forged, accept="en-US")["body"]
+
+
+def test_pay_tells_the_chat_in_the_language_of_the_conversation_when_the_visitor_chose_none(configured, page):
+    _call(page, "POST", payment.link(_booking(), ITEMS, language="ja"), accept="en-US")
+
+    ((_chat, message),) = page.sent
+    assert "お支払い完了（デモ）" in message
+
+
+def _stored(kind, detail, quantity=1):
+    """An item as the order store hands it back, with the facts the order tools read from it."""
+    return store.Item(
+        id=1, seq=1, kind=kind, source="TMC", title="TR0866, GK0013: TPE → NRT, NRT → TPE", quantity=quantity,
+        sell_amount=Decimal("414.00"), booking_status="CONFIRMED", fulfilment_status="NONE", supplier_order_no=None,
+        supplier_ref=None, supplier_confirm_no=None, pay_by_at=None, version=1, detail=detail, travellers=())
+
+
+def _flight(kind="ROUND_TRIP"):
+    flown = [("TR0866", 1, "TPE", "NRT", datetime(2027, 3, 1, 8, 5), datetime(2027, 3, 1, 12, 20)),
+             ("GK0013", 2, "NRT", "TPE", datetime(2027, 3, 5, 14, 0), datetime(2027, 3, 5, 17, 10))]
+    return _stored("FLIGHT", {"trip_kind": kind, "adult_count": 1, "segments": [
+        {"flight_no": number, "journey_seq": leg, "origin_code": origin, "destination_code": destination,
+         "depart_local": departs, "arrive_local": arrives}
+        for number, leg, origin, destination, departs, arrives in flown]})
+
+
+def _page_of(page, booking, language):
+    """The page of the link the order tools give for *booking* in a conversation in *language*."""
+    url = tools_orders._with_payment(tools_orders._order_view(booking), booking, False, language)["payment_url"]
+    return _call(page, "GET", url)["body"]
+
+
+@pytest.mark.parametrize(("language", "label", "kind"), [
+    ("zh-Hant", "行程類型", "來回"), ("zh-Hans", "行程类型", "往返"), ("en", "Trip type", "Round trip"),
+    ("ja", "旅程タイプ", "往復"), ("ko", "여정 유형", "왕복"),
+])
+def test_the_kind_of_a_trip_is_said_in_the_language_of_the_page(configured, page, language, label, kind):
+    body = _page_of(page, _booking(items=(_flight(),)), language)
+
+    assert f"<th>{label}</th><td>{kind}</td>" in body
+
+
+def test_a_flight_reads_without_an_english_word_on_a_page_in_another_language(configured, page):
+    body = _page_of(page, _booking(items=(_flight(),)), "zh-Hant")
+
+    listing = re.sub(r"<[^>]+>", " ", body[body.index("<details"):body.index("</details>")])
+    assert "TPE → NRT" in listing and "TR0866 TPE 2027-03-01 08:05 → NRT 2027-03-01 12:20" in listing
+    assert not re.findall(r"[a-z]{2,}", listing)  # codes and numbers apart, every word is the page's own
+
+
+@pytest.mark.parametrize("language", payment.PAGE_LANGUAGES)
+def test_the_page_has_its_own_words_for_everything_an_order_says_about_an_item(configured, page, language):
+    items = (
+        _stored("HOTEL", {"hotel_name": "Park Hotel Tokyo", "room_name": "Deluxe King", "adult_count": 2,
+                          "room_count": 1, "check_in_date": date(2027, 3, 1), "check_out_date": date(2027, 3, 4)}),
+        _flight("ROUND_TRIP"), _flight("MULTI_CITY"),
+        _stored("EVENT_TICKET", {"event_name": "Final", "venue_name": "National Stadium", "category_name": "Category 1",
+                                 "starts_local": datetime(2027, 3, 3, 19, 30)}, quantity=2),
+    )
+    sent = {key for item in items for key in tools_orders._item_view(item)["details"]}
+
+    body = _page_of(page, _booking(items=items), language)
+
+    assert {"hotel", "room", "trip", "flights", "event", "starts_local"} <= sent
+    # A detail the page has no label for is shown under its key, and a kind of trip it has no word for as its code.
+    assert not [key for key in sent if f"<th>{key}</th>" in body]
+    assert "ROUND_TRIP" not in body and "MULTI_CITY" not in body
 
 
 def test_an_order_is_paid_once_and_the_traveller_is_told_once(configured, page):

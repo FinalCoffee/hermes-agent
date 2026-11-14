@@ -91,6 +91,22 @@ payment page in `deploy/accomy/payment-demo/`. That page charges nothing; pressi
 Telegram message. The bot is not told, so it never says an order is paid. When the contact gave an email
 address, the page also mails the order's PDF statement to it at that moment (see Order statement).
 
+**The language of the conversation.** The payment page and the PDF statement are written for the user, so
+they are written in the language the user is talking in. They speak five: Traditional and Simplified Chinese,
+English, Japanese and Korean (`payment.PAGE_LANGUAGES`; the page holds the same list, and
+`statement_text.py` the statement's words in each). English stands in for every other language.
+`place_order`, `get_order` and `get_order_pdf` take `language`: the one of the five the assistant is writing to
+the user in, and `en` for any other. It belongs to the request and is not stored with the order, so a user
+who changes language gets the next link or PDF in the new one. A call without it gets English. A link names
+its language, and the page opens in it whatever the phone is set to; a selector on the page changes it. The
+Telegram message and the body of the mail that Pay sends follow the page; the PDF attached to that mail was
+drawn when the order was placed, in the language of that conversation. What the bot sends the page about an
+order holds no word of its own: a route is written with an arrow (`TPE → SIN`), a round trip or a multi-city
+trip is a code (`ROUND_TRIP`, `MULTI_CITY`), and the rest is names, codes, dates and numbers. The page has a
+label for every detail and a word for every kind of trip in each of its languages. A new detail in
+`tools_orders._details`, or a new kind of trip, needs its words in `deploy/accomy/payment-demo/handler.py` in
+the same change.
+
 ## Attachments
 
 With `telegram.accept_attachments: true` the Telegram adapter downloads what a user sends into the gateway's
@@ -398,8 +414,9 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   for everyone per day (rolling 24 hours), 3 items per order, 10 event tickets per item, 9 travellers per order,
   and quotes that expire after 30 minutes. A refused order says why in the chat.
 - Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
-- An order's PDF statement is made for a confirmed order only, in English whatever language the chat uses,
-  and its file is kept for one hour (see Order statement).
+- An order's PDF statement is made for a confirmed order only, in the language of the conversation when that
+  is Traditional or Simplified Chinese, Japanese, Korean or English and in English otherwise, and its file is
+  kept for one hour (see Order statement).
 - A statement is mailed to an address that nobody confirmed, so mail is limited: 5 statements a day for a
   buyer, 3 a day to one mailbox whoever orders, 100 a day in all. A mailbox is counted without capitals,
   without a `+tag` and without dots in its name, so other spellings of it share the 3. These are counted in
@@ -525,6 +542,11 @@ sends the file, named `Accomy-statement-<booking code>.pdf`.
   with the family name first, each item with its dates and amount, the total in US dollars, the trip, and what
   the payment page answers for the order: paid or not paid. When the page cannot be asked, the statement claims
   neither. Airports appear by their codes, because that is what an order keeps.
+- **Its language** is the one of the conversation that asks for it (the `language` of `get_order_pdf`, and of
+  `place_order` for the statement that is mailed), and English for a language it is not written in.
+  `statement_text.py` holds every word of it in each language under the same keys: headings, the notice,
+  the kinds of trip, the cabins, how a count and a date are written. A new word goes into every language
+  there. What an order holds as a name or a code stays as it is: a hotel, a room, a flight number, an airport.
 - **It says that the order is a demonstration** in four places: a band across the top of every page, the
   status box, the line under the total, and a box that says what the document is and what it is not (a ticket,
   a booking confirmation, a receipt, a tax invoice). A user who asks for one of those gets the statement, and
@@ -537,7 +559,10 @@ sends the file, named `Accomy-statement-<booking code>.pdf`.
 - **Fonts.** The standard PDF fonts draw Latin text only. Chinese, Japanese and Korean, and accented letters
   outside Windows-1252, are drawn with WenQuanYi Micro Hei: the image carries it (`fonts-wqy-microhei`, a step
   of its own in the `Dockerfile`, which stops the build if the file is not where the plugin looks for it) and
-  each document embeds the characters it uses. A letter neither font holds, as in a name written in Arabic or
+  each document embeds the characters it uses. That font has one weight, so a heading that is bold in Latin
+  letters is not in those scripts. The tests draw with a cut of the same font that holds every character of
+  the statement's own words (`tests/plugins/accomy_travel/fixtures/fonts/`): a word with a new character
+  needs the cut made again, as the top of `test_statement_pdf.py` says. A letter neither font holds, as in a name written in Arabic or
   Thai, shows as a question mark, so that the name is seen to be missing; a symbol such as an emoji is left
   out. A host without that font file draws the Latin text only, and says so once in the log.
 - **Text from a user or a supplier is escaped** before it becomes paragraph markup, because reportlab's markup

@@ -137,19 +137,26 @@ confirmed order carries a signed link to it, valid for 24 hours from the moment 
 
 - **What the visitor sees.** The order item by item (each line opens to show its dates, flights, room or tickets,
   and the supplier's own price when the amount was converted), the total in US dollars, and a banner saying this is
-  a demonstration that charges nothing. The language follows the visitor's browser (Traditional and Simplified
-  Chinese, English, Japanese, Korean; English for any other) and a selector on the page changes it.
+  a demonstration that charges nothing. The page speaks Traditional and Simplified Chinese, English, Japanese
+  and Korean. It opens in the language of the conversation the link was given in, which the link names
+  (English when the conversation is in any other language). A link that names none, such as one made before
+  links named a language, opens in the first of the five the visitor's browser lists, and in English
+  otherwise; so does the notice for a link that cannot be read. A selector on the page changes it. Every label and every kind of trip is said in that language; the rest of an order's lines
+  is names, codes, dates and numbers, which the bot sends without a word of its own.
 - **Paying.** The page accepts only Airwallex's public test card `4012 0003 0000 0062`, checks it in the browser and
   never receives a card number. Pressing Pay makes the Lambda send the user a real Telegram message, as the bot, in
   the page's language. An order is paid once: the table remembers it, and a second press sends nothing.
 - **Cancelling.** When the bot cancels an order it tells the page, and the link then says the order was cancelled
   and takes no payment. `get_order` asks the page whether an order was paid.
-- **What the link holds.** The order code, the trip name, the items and amounts, and the chat to notify. It is
-  signed, not encrypted, and names no traveller. Anyone who is given the link can see that order and pay it.
+- **What the link holds.** The order code, the trip name, the items and amounts, the chat to notify and the
+  language of the conversation. It is signed, not encrypted, and names no traveller. Anyone who is given
+  the link can see that order and pay it.
 - **The statement by email.** When an order's contact gave an email address, the bot leaves the order's PDF
   statement and that address with the page when the order is placed, in a request only the bot can sign. Pay
-  then sends the Telegram message and, after it, mails the PDF to the address through Amazon SES, once, in the
-  page's language; a second Telegram message says where it went. A payment the page takes back, because the
+  then sends the Telegram message and, after it, mails the PDF to the address through Amazon SES, once; a
+  second Telegram message says where it went. The mail's subject and body and both Telegram messages are in
+  the page's language. The PDF is the one the bot drew when the order was placed, in the language of that
+  conversation, and the page sends it as it is. A payment the page takes back, because the
   Telegram message could not be sent, has mailed nothing. The mail is sent whoever presses Pay: the link is
   all it takes. The bot cannot do this itself: nothing tells it that an order was paid. The table holds the
   file and the address until the order is paid or cancelled. An order that is never paid is never mailed: its

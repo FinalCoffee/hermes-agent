@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from gateway.session_context import clear_session_vars, set_session_vars
-from plugins.accomy_travel import _common, fx, orderbridge, quotes, tools_orders
+from plugins.accomy_travel import _common, fx, orderbridge, payment, quotes, tools_orders
 from plugins.accomy_travel.orderstore import db, store
 
 DSN_UNREACHABLE = "postgresql://chatbot:not-the-password@127.0.0.1:1/chatbot"
@@ -290,3 +290,16 @@ def test_any_other_failure_is_a_generic_answer(monkeypatch):
 
     assert _error(result) == ("order_failed", tools_orders.GENERIC_FAILURE)
     assert "hunter2" not in result and "db.internal" not in result
+
+
+def test_the_tools_that_write_for_the_user_ask_the_model_for_the_language_of_the_conversation():
+    asked = {}
+    for tool in tools_orders.TOOLS:
+        parameters = tool.schema["parameters"]
+        language = parameters["properties"].get("language")
+        asked[tool.name] = language and (set(language["enum"]), "language" in parameters["required"])
+
+    # A link to the payment page or a PDF comes from these three: the model must say which language to write in.
+    written = (set(payment.PAGE_LANGUAGES), True)
+    assert asked == {"place_order": written, "get_order": written, "get_order_pdf": written,
+                     "list_trips": None, "cancel_order": None}

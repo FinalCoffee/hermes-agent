@@ -4,12 +4,15 @@ handlers; only the supplier clients are stubbed, so the prices and facts an orde
 Skipped without the local test database (see test_orderstore.py for how to start it)."""
 
 import asyncio
+import base64
 import copy
+import dataclasses
 import io
 import json
 import re
 import secrets
 import socket
+import zlib
 from contextlib import contextmanager
 from datetime import date, timedelta
 from decimal import Decimal
@@ -135,7 +138,7 @@ def _event_listing() -> dict:
     return _ok(tools_events.get_event_tickets({"event_id": EVENT_ID}))["listings"][0]
 
 
-def _order(*quote_ids, quantity=None, travellers=None) -> str:
+def _order(*quote_ids, quantity=None, travellers=None, language=None) -> str:
     items = []
     for qid in quote_ids:
         item = {"quote_id": qid}
@@ -144,7 +147,8 @@ def _order(*quote_ids, quantity=None, travellers=None) -> str:
         items.append(item)
     people = [{"given_name": "Mei", "family_name": "Lin"}] if travellers is None else travellers
     return tools_orders.place_order({
-        "items": items, "contact": {"name": "Mei Lin", "email": "mei@example.com"}, "travellers": people})
+        "items": items, "contact": {"name": "Mei Lin", "email": "mei@example.com"}, "travellers": people,
+        **({"language": language} if language else {})})
 
 
 def _count(schema: str, sql: str, *args):
@@ -239,9 +243,9 @@ def test_a_round_trip_is_one_flight_item_that_keeps_each_flight_with_its_leg(ord
 
     (item,) = placed["items"]
     assert placed["total"] == back["flights"][0]["price"]
-    assert item["details"]["trip"] == "round trip"
+    assert item["details"]["trip"] == "ROUND_TRIP"
     assert [line.split()[0] for line in item["details"]["flights"]] == ["TR0866", "GK0013"]
-    assert item["title"] == "TR0866, GK0013: TPE to NRT, NRT to TPE"
+    assert item["title"] == "TR0866, GK0013: TPE → NRT, NRT → TPE"
     assert _count(orders, "SELECT trip_kind FROM o_booking_item_flight") == "ROUND_TRIP"
     assert _count(
         orders, "SELECT array_agg(journey_seq ORDER BY segment_seq) FROM o_booking_item_flight_segment") == [1, 2]
@@ -452,8 +456,6 @@ def paying(orders, monkeypatch):
 
 
 def _handed_pdf(statement: dict) -> str:
-    import base64
-
     reader = pypdf.PdfReader(io.BytesIO(base64.b64decode(statement["pdf"])))
     return " ".join(" ".join(page.extract_text().split()) for page in reader.pages)
 
@@ -662,3 +664,120 @@ def test_an_order_carries_the_demo_payment_link_until_it_is_paid_or_cancelled(or
     assert paid["payment"].startswith("PAID") and "payment_url" not in paid
     assert "payment_url" not in cancelled and cancelled["notice"] == tools_orders.CANCEL_PAID_NOTICE
     assert ("POST", "v") in page["asked"]
+
+
+# ---- The language of the payment page ---------------------------------------------------------------
+
+def _linked(url: str) -> dict:
+    """What a payment link says: the claims the page reads from its token."""
+    body = url.rsplit("/", 1)[1].split(".")[1]
+    return json.loads(zlib.decompress(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))))
+
+
+def test_the_payment_page_of_an_order_opens_in_the_language_of_the_conversation(paying):
+    with buyer():
+        placed = _ok(_order(_hotel_rate()["quote_id"], language="ja"))
+        code = placed["booking_code"]
+        later = _ok(tools_orders.get_order({"booking_code": code, "language": "ko"}))
+        unnamed = _ok(tools_orders.get_order({"booking_code": code}))
+
+    assert _linked(placed["payment_url"])["lang"] == "ja"
+    assert _linked(later["payment_url"])["lang"] == "ko"  # the conversation of the moment, not of the order
+    assert _linked(unnamed["payment_url"])["lang"] == "en"
+
+
+def test_an_order_placed_without_a_language_gets_an_english_page(paying):
+    with buyer():
+        placed = _ok(_order(_hotel_rate()["quote_id"]))
+
+    assert _linked(placed["payment_url"])["lang"] == "en"
+
+
+@pytest.mark.parametrize("tool", ["place_order", "get_order", "get_order_pdf"])
+def test_a_language_that_nothing_is_written_in_is_refused(orders, tool):
+    with buyer():
+        rate = _hotel_rate()
+        if tool == "place_order":
+            code, message = _error(_order(rate["quote_id"], language="fr"))
+        else:
+            booking = _ok(_order(rate["quote_id"]))["booking_code"]
+            code, message = _error(getattr(tools_orders, tool)({"booking_code": booking, "language": "zh-TW"}))
+
+    assert code == "invalid_arguments" and "zh-Hant" in message and "en for any other" in message
+    assert _count(orders, "SELECT count(*) FROM o_booking") == (0 if tool == "place_order" else 1)
+
+
+def test_the_same_quotes_ordered_again_in_another_language_are_the_same_order_on_a_page_in_the_new_one(paying):
+    with buyer():
+        rate = _hotel_rate()
+        first = _ok(_order(rate["quote_id"], language="zh-Hant"))
+        again = _ok(_order(rate["quote_id"], language="en"))
+
+    assert again["booking_code"] == first["booking_code"] and again["replayed"] is True
+    assert (_linked(first["payment_url"])["lang"], _linked(again["payment_url"])["lang"]) == ("zh-Hant", "en")
+
+
+@pytest.fixture
+def cjk_font(monkeypatch):
+    """The test font in the place of the image's (see test_statement_pdf.py)."""
+    font = Path(__file__).parent / "fixtures" / "fonts" / "wqy-microhei-subset.ttf"
+    monkeypatch.setattr(statement_pdf, "WIDE_FONT_FILES", ((str(font), 0),))
+    monkeypatch.setattr(statement_pdf, "_wide_glyphs", None)
+
+
+def _pdf_words(path: str) -> str:
+    """The words of a PDF without their spaces: a PDF keeps none between two characters of Chinese."""
+    reader = pypdf.PdfReader(path)
+    return "".join(" ".join(page.extract_text() for page in reader.pages).split())
+
+
+def test_the_pdf_of_an_order_is_written_in_the_language_of_the_conversation_that_asks(orders, cjk_font):
+    with buyer():
+        code = _ok(_order(_hotel_rate()["quote_id"], language="en"))["booking_code"]
+        chinese = _ok(tools_orders.get_order_pdf({"booking_code": code, "language": "zh-Hant"}))
+        japanese = _ok(tools_orders.get_order_pdf({"booking_code": code, "language": "ja"}))
+        unnamed = _ok(tools_orders.get_order_pdf({"booking_code": code}))
+
+    assert "訂單明細與行程表" in _pdf_words(chinese["send_line"].removeprefix("MEDIA:"))
+    assert "ご注文明細・旅程表" in _pdf_words(japanese["send_line"].removeprefix("MEDIA:"))
+    assert "Orderstatementanditinerary" in _pdf_words(unnamed["send_line"].removeprefix("MEDIA:"))
+
+
+def test_the_statement_that_is_mailed_is_written_in_the_language_the_order_was_placed_in(paying, cjk_font):
+    with buyer():
+        tools_orders.place_order({
+            "items": [{"quote_id": _hotel_rate()["quote_id"]}], "language": "ko",
+            "contact": {"name": "Mei Lin", "email": "mei@example.com"},
+            "travellers": [{"given_name": "Mei", "family_name": "Lin"}]})
+
+    (handed,) = paying.handed
+    assert "주문명세서및여정표" in "".join(_handed_pdf(handed).split())
+
+
+def test_a_hotel_whose_room_has_no_name_is_titled_by_the_hotel_alone(orders, monkeypatch):
+    with buyer():
+        rate = _hotel_rate()
+        quote = quotes.lookup(rate["quote_id"])
+        monkeypatch.setattr(quotes, "lookup", lambda quote_id, *kinds: dataclasses.replace(
+            quote, facts=dataclasses.replace(quote.facts, room_name="")))
+        placed = _ok(_order(rate["quote_id"]))
+
+    (item,) = placed["items"]
+    assert item["title"] == quote.facts.hotel_name and "room" not in item["details"]
+
+
+def test_what_a_payment_link_says_of_a_flight_holds_no_word_that_only_one_language_reads(paying, monkeypatch):
+    legs = [_fixture("tmc_flight_round_trip_leg1.json")["data"], _fixture("tmc_flight_round_trip_leg2.json")["data"]]
+    monkeypatch.setattr(tmc_client, "flight_search", lambda body: legs[len(body.get("journeyId") or [])])
+    with buyer():
+        out = _ok(tools_flights.search_flights({
+            "origin": "TPE", "destination": "TYO", "depart_date": _future(30), "return_date": _future(34)}))
+        back = _ok(tools_flights.search_flights({"continue_from": out["flights"][0]["option_id"]}))
+        placed = _ok(_order(back["flights"][0]["quote_id"]))
+
+    (line,) = _linked(placed["payment_url"])["items"]
+    assert line["title"] == "TR0866, GK0013: TPE → NRT, NRT → TPE"
+    assert line["details"]["trip"] == "ROUND_TRIP"  # a code: the page has a word for it in each of its languages
+    assert len(line["details"]["flights"]) == 2 and "TPE" in line["details"]["flights"][0]
+    # Flight numbers, airports, dates and times: nothing in lower case, so no word the page would have to translate.
+    assert not re.findall(r"[a-z]+", " ".join([line["title"], *line["details"]["flights"]]))

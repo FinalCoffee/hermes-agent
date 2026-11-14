@@ -187,6 +187,18 @@ def _trip(args: dict) -> tuple[str | None, str | None]:
     return code, None if title is None else _text(title, "trip_title", 80)
 
 
+def _language(args: dict) -> str:
+    """The language of the conversation, as the model names it: the payment page and the statement of an order are
+    written in it. English when the model names none."""
+    language = args.get("language")
+    if language is None:
+        return payment.FALLBACK_LANGUAGE
+    if language not in payment.PAGE_LANGUAGES:
+        raise ValueError(
+            f"language is one of: {', '.join(payment.PAGE_LANGUAGES)}. Give {payment.FALLBACK_LANGUAGE} for any other.")
+    return language
+
+
 def _booking_code(args: dict) -> str:
     code = str(args.get("booking_code") or "").strip().upper()
     if not BOOKING_CODE_RE.fullmatch(code):
@@ -212,9 +224,10 @@ def _conversion(price: fx.Converted) -> store.FxConversion | None:
 def _hotel_item(facts: quotes.HotelRate, travellers: tuple[store.Traveller, ...]) -> store.NewItem:
     if not travellers:
         raise ValueError("A hotel needs the lead guest's name: give at least one traveller.")
-    room = facts.room_name or "Room"
+    # A title is shown on the payment page, in whatever language its visitor reads: it holds names and no word.
     return store.NewItem(
-        source="TMC", title=f"{facts.hotel_name} / {room}"[:200], sell_amount=facts.total.amount,
+        source="TMC", title=" / ".join(filter(None, (facts.hotel_name, facts.room_name)))[:200],
+        sell_amount=facts.total.amount,
         detail=store.HotelStay(
             hotel_id=str(facts.hotel_id), hotel_name=facts.hotel_name[:200], check_in=facts.check_in,
             check_out=facts.check_out, adults=facts.adults, rooms=facts.rooms,
@@ -233,9 +246,10 @@ def _flight_item(facts: quotes.FlightFare, travellers: tuple[store.Traveller, ..
             destination=leg.destination, depart_local=leg.depart_local, arrive_local=leg.arrive_local,
             cabin=leg.cabin)
         for leg in facts.legs)
-    # One route per leg of the trip: a round trip reads "TPE to NRT, NRT to TPE".
+    # One route per leg of the trip: a round trip reads "TPE → NRT, NRT → TPE". An arrow and not a word, because
+    # the payment page shows the title in whatever language its visitor reads.
     by_leg = [[leg for leg in legs if leg.journey == number] for number in sorted({leg.journey for leg in legs})]
-    route = ", ".join(f"{flown[0].origin} to {flown[-1].destination}" for flown in by_leg)
+    route = ", ".join(f"{flown[0].origin} → {flown[-1].destination}" for flown in by_leg)
     flights = ", ".join(leg.flight_no for leg in legs)  # the supplier's flight number already carries the airline code
     return store.NewItem(
         source="TMC", title=f"{flights}: {route}"[:200], sell_amount=facts.total.amount, quantity=facts.adults,
@@ -357,6 +371,10 @@ def _money(amount: Any) -> dict:
 
 
 def _details(item: store.Item) -> dict:
+    """What an order holds about one item. The payment page shows these lines too, in its visitor's language: it
+    has a label for every key here and a word for every kind of trip, so no value is a word of the bot's own.
+    Each is a name, a code, a date or a number. A new key or kind of trip needs its words in the page's handler
+    (deploy/accomy/payment-demo/handler.py)."""
     detail = item.detail
     if item.kind == "HOTEL":
         nights = (detail["check_out_date"] - detail["check_in_date"]).days
@@ -367,11 +385,11 @@ def _details(item: store.Item) -> dict:
         })
     if item.kind == "FLIGHT":
         return _common.compact({
-            "trip": None if detail["trip_kind"] == quotes.ONE_WAY else detail["trip_kind"].replace("_", " ").lower(),
+            "trip": None if detail["trip_kind"] == quotes.ONE_WAY else detail["trip_kind"],
             "passengers": detail["adult_count"],
             "flights": [
                 f"{s['flight_no']} {s['origin_code']} {s['depart_local']:%Y-%m-%d %H:%M} "
-                f"to {s['destination_code']} {s['arrive_local']:%Y-%m-%d %H:%M}"
+                f"→ {s['destination_code']} {s['arrive_local']:%Y-%m-%d %H:%M}"
                 for s in detail["segments"]],
         })
     return _common.compact({
@@ -409,8 +427,9 @@ def _item_view(item: store.Item) -> dict:
     return view
 
 
-def _with_payment(view: dict, booking: store.Booking, paid: bool) -> dict:
-    """Add what the demo payment page knows: the order is paid, or here is the link to pay it."""
+def _with_payment(view: dict, booking: store.Booking, paid: bool, language: str) -> dict:
+    """Add what the demo payment page knows: the order is paid, or here is the link to pay it, on a page that opens
+    in *language*."""
     if paid:
         view["payment"] = "PAID (demonstration: nothing was charged)"
         return view
@@ -418,7 +437,7 @@ def _with_payment(view: dict, booking: store.Booking, paid: bool) -> dict:
               "amount": item["amount"]["amount"], "details": item["details"],
               **({"supplier_price": item["supplier_price"]} if "supplier_price" in item else {})}
              for item in view["items"]]
-    if url := payment.link(booking, lines):
+    if url := payment.link(booking, lines, language=language):
         view["payment"] = "UNPAID"
         view["payment_url"] = url
     return view
@@ -433,12 +452,14 @@ def place_order(args: dict) -> str:
     contact = _contact(args)
     travellers = _travellers(args)
     day = dt.datetime.now(dt.UTC).date().isoformat()
+    language = _language(args)
     new = _build(picks, travellers, buyer, contact, day, _trip(args))
     booking = _store_call(lambda conn: _place(conn, new))
-    view = _with_payment(_order_view(booking), booking, booking.replayed and payment.state(booking) == "PAID")
+    view = _with_payment(
+        _order_view(booking), booking, booking.replayed and payment.state(booking) == "PAID", language)
     if booking.replayed:
         view["replayed"] = True
-    elif "payment_url" in view and (mailed_to := _statement_by_mail(booking)):
+    elif "payment_url" in view and (mailed_to := _statement_by_mail(booking, language)):
         view["statement_email"] = mailed_to
     return _common.ok(
         **view,
@@ -464,7 +485,7 @@ def get_order(args: dict) -> str:
         raise ApiError("not_found", NOT_FOUND)
     paid = booking.status == "CONFIRMED" and payment.state(booking) == "PAID"
     return _common.ok(
-        **_with_payment(_order_view(booking), booking, paid),
+        **_with_payment(_order_view(booking), booking, paid, _language(args)),
         hint="Read the order's status and items to the user. Amounts are in US dollars. payment says whether "
              "the demo payment was made; when payment_url is present, give it as the demo payment link. "
              "get_order_pdf makes a PDF of a confirmed order.")
@@ -509,9 +530,9 @@ def _mailbox(email: str) -> str:
     return f"{name.split('+', 1)[0].replace('.', '')}@{host}"
 
 
-def _statement_by_mail(booking: store.Booking) -> str | None:
-    """Leave the statement of a new order with the payment page, which mails it to the contact when the order is
-    paid. The address it will go to, or None: no address, one that cannot be mailed, an allowance used up, a page
+def _statement_by_mail(booking: store.Booking, language: str) -> str | None:
+    """Leave the statement of a new order, written in *language*, with the payment page, which mails it to the
+    contact when the order is paid. The address it will go to, or None: no address, one that cannot be mailed, an allowance used up, a page
     that sends no mail. A failure here never fails the order, which is already placed."""
     email = booking.contact.email
     if not email or not _MAILBOX_RE.fullmatch(email):
@@ -525,7 +546,8 @@ def _statement_by_mail(booking: store.Booking) -> str | None:
         from . import statement_pdf  # as in _statement_file
 
         # Drawn as paid: the page mails it only once the order is.
-        page = statement.build(booking, payment=statement.PAID, issued=dt.datetime.now(dt.UTC).date())
+        page = statement.build(
+            booking, payment=statement.PAID, issued=dt.datetime.now(dt.UTC).date(), language=language)
         kept = payment.keep_statement(booking, email, statement_pdf.render(page)) == "KEPT"
     except Exception:
         logger.exception("accomy statement could not be left for mailing")
@@ -535,10 +557,11 @@ def _statement_by_mail(booking: store.Booking) -> str | None:
     return email if kept else None
 
 
-def _statement_file(booking: store.Booking) -> Path:
+def _statement_file(booking: store.Booking, language: str) -> Path:
     """Draw the order's statement and save it. A failure is answered with a fixed sentence, like the store's: what
     a drawing library or the file system says names paths of the host."""
-    page = statement.build(booking, payment=payment.state(booking), issued=dt.datetime.now(dt.UTC).date())
+    page = statement.build(
+        booking, payment=payment.state(booking), issued=dt.datetime.now(dt.UTC).date(), language=language)
     try:
         # Imported here, so that reportlab loads with the first statement and an install without it still has
         # every other tool.
@@ -561,7 +584,7 @@ def get_order_pdf(args: dict) -> str:
         raise ApiError("not_confirmed", NO_STATEMENT)
     return _common.ok(
         booking_code=booking.code,
-        send_line=f"MEDIA:{_statement_file(booking)}",
+        send_line=f"MEDIA:{_statement_file(booking, _language(args))}",
         hint="The PDF is made and not yet sent. To send it, copy send_line into your reply on a line of its own, "
              "just above the suggestions line, unchanged from its first letter M: it is an instruction to the chat "
              "app, which takes the line out and attaches the file. Never translate it, shorten it or put a word "
@@ -584,6 +607,14 @@ def cancel_order(args: dict) -> str:
 
 
 # ---- schemas ---------------------------------------------------------------------------------------
+
+_LANGUAGE_SCHEMA = {
+    "type": "string", "enum": list(payment.PAGE_LANGUAGES),
+    "description": (
+        "The language you are writing to the user in. The demo payment page and the order's PDF statement are "
+        f"written in it. Give {payment.FALLBACK_LANGUAGE} for a language that is not listed."),
+}
+
 
 def _item_schema() -> dict:
     return {
@@ -622,6 +653,7 @@ def _place_schema() -> dict:
                 },
                 "trip_code": {"type": "string", "description": "Add this order to one of the chat's open trips (from list_trips or an earlier order). Leave out to start a new trip."},
                 "trip_title": {"type": "string", "description": "A short name for the new trip, e.g. Tokyo in March. Used only when trip_code is left out."},
+                "language": _LANGUAGE_SCHEMA,
                 "travellers": {
                     "type": "array",
                     "description": "Everyone travelling: given and family name as on their passport. Flights need one per passenger.",
@@ -636,19 +668,23 @@ def _place_schema() -> dict:
                     },
                 },
             },
-            "required": ["items", "contact"],
+            "required": ["items", "contact", "language"],
         },
     }
 
 
-def _code_schema(name: str, description: str) -> dict:
+def _code_schema(name: str, description: str, *, written: bool = False) -> dict:
+    """A tool that takes one booking code, and the conversation's language when its answer holds something written
+    for the user: the payment page or the statement."""
     return {
         "name": name,
         "description": description,
         "parameters": {
             "type": "object",
-            "properties": {"booking_code": {"type": "string", "description": "The booking code, e.g. AC1234ABCD5678."}},
-            "required": ["booking_code"],
+            "properties": {
+                "booking_code": {"type": "string", "description": "The booking code, e.g. AC1234ABCD5678."},
+                **({"language": _LANGUAGE_SCHEMA} if written else {})},
+            "required": ["booking_code", *(["language"] if written else [])],
         },
     }
 
@@ -666,7 +702,7 @@ _LIST_SCHEMA = {
 }
 
 _GET_SCHEMA = _code_schema(
-    "get_order", "One of this chat's orders with its items and USD amounts. Read-only.")
+    "get_order", "One of this chat's orders with its items and USD amounts. Read-only.", written=True)
 
 _PDF_SCHEMA = _code_schema(
     "get_order_pdf",
@@ -675,7 +711,7 @@ _PDF_SCHEMA = _code_schema(
     "asks for the order, its itinerary or its statement as a PDF, a file or a document. It is also all there is "
     "for a user who asks for a ticket, a booking confirmation or a receipt: the page says that the order is a "
     "demonstration and none of those, and so does the reply. The result holds the line that sends the file when "
-    "it is copied into the reply.")
+    "it is copied into the reply.", written=True)
 
 _CANCEL_SCHEMA = _code_schema(
     "cancel_order", "Cancel one of this chat's confirmed demonstration orders. No payment was taken, so nothing is refunded.")

@@ -2,9 +2,10 @@
 
 The page charges nothing. It shows the order item by item, accepts only a public test card, and on Pay
 sends the traveller a Telegram message, once. A link is a token signed with a key the page shares: the
-order with its items, the amount and the chat to tell. It names no traveller. The page keeps one fact
-per order, PAID or VOID: the bot voids an order it cancels, and asks whether an order was paid. Without
-the key or the page's address an order simply carries no link and nothing is asked.
+order with its items, the amount, the chat to tell and the language of the conversation, which the page
+opens in. It names no traveller. The page keeps one fact per order, PAID or VOID: the bot voids an
+order it cancels, and asks whether an order was paid. Without the key or the page's address an order
+simply carries no link and nothing is asked.
 
 The bot has no way to hear that an order was paid, so the statement that is mailed after payment is left
 with the page beforehand: the PDF and the contact's address, which the page keeps until the order is paid
@@ -27,6 +28,10 @@ from .orderstore import store
 SECRET_ENV = "ACCOMY_PAYMENT_LINK_SECRET"
 URL_SETTING = "payment_url"
 LINK_LIFE_SECONDS = 24 * 3600  # from the moment the order was placed, however often it is looked at
+# The languages the page speaks, and an order's statement with it (statement_text.py). The page holds the same
+# list (LANGUAGES in deploy/accomy/payment-demo/handler.py). English stands in for every other language.
+PAGE_LANGUAGES = ("zh-Hant", "zh-Hans", "en", "ja", "ko")
+FALLBACK_LANGUAGE = "en"
 # What the page keeps for one order: its table holds 400 KB a row. The page holds the same number
 # (_STATEMENT_BYTES in deploy/accomy/payment-demo/handler.py) and refuses anything larger.
 STATEMENT_MAX_BYTES = 300 * 1024
@@ -54,9 +59,14 @@ def _token(key: str, claims: dict) -> str:
     return f"v2.{body}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
 
 
-def link(booking: store.Booking, items: list[dict], *, now: float | None = None) -> str | None:
+def link(booking: store.Booking, items: list[dict], *, language: str | None = None,
+         now: float | None = None) -> str | None:
     """The payment page for a confirmed order of this chat, showing *items* (the order's lines as the tools
-    show them, with no traveller in them). None when there is nothing to pay, no page, or the link's day is over."""
+    show them, with no traveller in them). None when there is nothing to pay, no page, or the link's day is over.
+
+    The page opens in *language*, the language of the conversation: one of PAGE_LANGUAGES, which the caller
+    sees to. It says the rest of each line in that language too, so a line holds names, codes, dates and
+    numbers, and no English word."""
     page = _page()
     expires = booking.created_at.timestamp() + LINK_LIFE_SECONDS
     if (page is None or booking.status != "CONFIRMED" or not booking.buyer.chat_ref
@@ -71,6 +81,7 @@ def link(booking: store.Booking, items: list[dict], *, now: float | None = None)
         "chat": booking.buyer.chat_ref,
         "exp": int(expires),
         "items": items,
+        **({"lang": language} if language else {}),
     })
 
 

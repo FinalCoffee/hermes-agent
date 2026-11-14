@@ -1,11 +1,12 @@
 """What an order's statement says, from orders shaped as the store returns them. No database and no PDF here."""
 
 import datetime as dt
+import re
 from decimal import Decimal
 
 import pytest
 
-from plugins.accomy_travel import statement
+from plugins.accomy_travel import payment, statement, statement_text
 from plugins.accomy_travel.orderstore import store
 
 ISSUED = dt.date(2026, 11, 14)
@@ -261,3 +262,140 @@ def test_a_trip_without_days_shows_none():
     page = _statement(_tickets(starts=None), trip=("Some day", None, None))
 
     assert _column(page.summary, "Trip") == ("Some day", "Trip TR8K2M4N6P8Q0R")
+
+
+# ── The language ──────────────────────────────────────────────────────────────
+
+ROUND_TRIP = (_flight("TR897", 1, "TPE", "SIN", "2026-11-16T08:05", "2026-11-16T12:40"),
+              _flight("TR898", 2, "SIN", "TPE", "2026-11-22T13:55", "2026-11-22T18:35"))
+
+
+@pytest.mark.parametrize(("language", "title", "status", "kind", "flight", "dates", "passengers", "placed"), [
+    ("zh-Hant", "訂單明細與行程表", "示範 · 已付款", "來回", "TR897 · 11月16日（週一） · 08:05 TPE → 12:40 SIN · 經濟艙",
+     "2026年11月16日–22日", "1 位旅客", "下單日期 2026年11月14日（UTC）"),
+    ("zh-Hans", "订单明细与行程单", "演示 · 已付款", "往返", "TR897 · 11月16日（周一） · 08:05 TPE → 12:40 SIN · 经济舱",
+     "2026年11月16日–22日", "1 位旅客", "下单日期 2026年11月14日（UTC）"),
+    ("ja", "ご注文明細・旅程表", "デモ · 支払い済み", "往復", "TR897 · 11月16日（月） · 08:05 TPE → 12:40 SIN · エコノミークラス",
+     "2026年11月16日–22日", "1名", "注文日 2026年11月14日（UTC）"),
+    ("ko", "주문 명세서 및 여정표", "데모 · 결제 완료", "왕복", "TR897 · 11월 16일 (월) · 08:05 TPE → 12:40 SIN · 이코노미석",
+     "2026년 11월 16일–22일", "탑승객 1명", "주문일 2026년 11월 14일 (UTC)"),
+    ("en", "Order statement and itinerary", "Demonstration · paid", "Round trip",
+     "TR897 · Mon 16 Nov · 08:05 TPE to 12:40 SIN · Economy", "16–22 Nov 2026", "1 passenger", "Placed 14 Nov 2026 UTC"),
+])
+def test_a_statement_is_written_in_the_language_of_the_conversation(
+        language, title, status, kind, flight, dates, passengers, placed):
+    page = statement.build(_order(_flights("ROUND_TRIP", *ROUND_TRIP)), payment="PAID", issued=ISSUED, language=language)
+    (line,) = page.lines
+
+    assert (page.page.title, page.status) == (title, status)
+    assert line.notes[:2] == (kind, flight)
+    assert (line.dates, line.quantity) == (dates, passengers)
+    assert page.summary[1].lines[-1] == placed
+
+
+@pytest.mark.parametrize("language", ["fr", "zh-TW", "", None])
+def test_a_language_the_statement_is_not_written_in_gets_the_english_one(language):
+    order = _order(_flights("ROUND_TRIP", *ROUND_TRIP), _hotel(), _tickets(), total="1163.60")
+
+    assert (statement.build(order, payment="PAID", issued=ISSUED, language=language)
+            == statement.build(order, payment="PAID", issued=ISSUED, language="en"))
+
+
+def _said(page: statement.Statement) -> str:
+    """Every word of a statement, the fixed ones of the page with those of the order."""
+    columns = [text for column in (*page.parties, *page.summary) for text in (column.label, *column.lines)]
+    lines = [text for line in page.lines for text in (line.title, *line.notes, line.dates, line.quantity)]
+    fixed = [text for value in vars(page.page).values()
+             for text in ([value] if isinstance(value, str) else [part for pair in value for part in pair])]
+    return " ".join([page.issued, page.status, *columns, *lines, *fixed])
+
+
+@pytest.mark.parametrize("language", [code for code in payment.PAGE_LANGUAGES if code != "en"])
+@pytest.mark.parametrize("paid", ["PAID", "UNPAID", None])
+def test_a_statement_in_another_language_holds_no_english_word_of_its_own(language, paid):
+    # An order whose own text is codes and capitals only, so every word in lower case would be the statement's.
+    lands_next_day = _flight("MM029", 2, "KIX", "KHH", "2026-12-31T23:15", "2027-01-01T01:40", cabin="premium_economy")
+    stay = _item("HOTEL", "360.00", {
+        "hotel_name": "HOTEL 88", "room_name": None, "room_count": 2, "adult_count": 3, "child_count": 0,
+        "check_in_date": dt.date(2026, 11, 30), "check_out_date": dt.date(2026, 12, 2)},
+        conversion=store.FxConversion(Decimal(12960), "THB", Decimal("0.0277"), ISSUED, "fixed"))
+    show = _item("EVENT_TICKET", "477.60", {
+        "event_name": "FINAL", "category_name": None, "venue_name": None,
+        "starts_local": dt.datetime(2026, 12, 22, 19, 30), "tz_name": "Europe/London"}, quantity=2)
+    order = _order(
+        _flights("MULTI_CITY", _flight("MM620", 1, "TPE", "NRT", "2026-12-10T02:25", "2026-12-10T06:30", cabin="business"),
+                 lands_next_day, travellers=()),
+        _flights("ONE_WAY", _flight("TR897", 1, "TPE", "SIN", "2026-11-16T08:05", "2026-11-16T12:40", cabin="first"),
+                 travellers=()),
+        stay, show, total="1163.60", contact=store.Contact("王小明", None, "+886 2 2345 6789"),
+        trip=("冬の旅", "2026-11-30", "2027-01-01"))
+
+    said = _said(statement.build(order, payment=paid, issued=ISSUED, language=language))
+
+    ours = re.sub(r"Accomy( AI Travel)?|{\w+}", "", said)  # the brand's name, and the blanks the page fills
+    assert not re.findall(r"[a-z]{2,}", ours)
+
+
+@pytest.mark.parametrize(("language", "in_a_month", "in_a_year", "over_the_new_year", "one_day"), [
+    ("en", "30 Nov–2 Dec 2026", "30 Nov–2 Dec 2026", "30 Dec 2026–2 Jan 2027", "22 Dec 2026"),
+    ("zh-Hant", "2026年12月10日–12日", "2026年11月30日–12月2日", "2026年12月30日–2027年1月2日", "2026年12月22日"),
+    ("ja", "2026年12月10日–12日", "2026年11月30日–12月2日", "2026年12月30日–2027年1月2日", "2026年12月22日"),
+    ("ko", "2026년 12월 10일–12일", "2026년 11월 30일–12월 2일", "2026년 12월 30일–2027년 1월 2일", "2026년 12월 22일"),
+])
+def test_the_days_of_a_stay_are_written_as_each_language_writes_a_date(
+        language, in_a_month, in_a_year, over_the_new_year, one_day):
+    def dates(check_in, check_out):
+        order = _order(_hotel(check_in, check_out))
+        return statement.build(order, payment=None, issued=ISSUED, language=language).lines[0].dates
+
+    if language != "en":
+        assert dates("2026-12-10", "2026-12-12") == in_a_month
+    assert dates("2026-11-30", "2026-12-02") == in_a_year
+    assert dates("2026-12-30", "2027-01-02") == over_the_new_year
+    page = statement.build(_order(_tickets()), payment=None, issued=ISSUED, language=language)
+    assert page.lines[0].dates == one_day
+
+
+@pytest.mark.parametrize(("language", "landing"), [
+    ("zh-Hant", "23:15 KIX → 01:40 KHH（12月21日抵達）"), ("zh-Hans", "23:15 KIX → 01:40 KHH（12月21日到达）"),
+    ("ja", "23:15 KIX → 01:40 KHH（12月21日着）"), ("ko", "23:15 KIX → 01:40 KHH (12월 21일 도착)"),
+])
+def test_a_flight_that_lands_on_another_day_says_which_in_the_statements_language(language, landing):
+    late = _flight("MM029", 1, "KIX", "KHH", "2026-12-20T23:15", "2026-12-21T01:40")
+
+    page = statement.build(_order(_flights("ONE_WAY", late)), payment=None, issued=ISSUED, language=language)
+
+    assert landing in page.lines[0].notes[1]
+
+
+def test_a_cabin_the_words_do_not_hold_reads_as_the_supplier_wrote_it():
+    odd = _flight("TR897", 1, "TPE", "SIN", "2026-11-16T08:05", "2026-11-16T12:40", cabin="sleeper_suite")
+    known = _flight("TR897", 1, "TPE", "SIN", "2026-11-16T08:05", "2026-11-16T12:40", cabin="Premium-Economy")
+
+    def cabin(segment):
+        page = statement.build(_order(_flights("ONE_WAY", segment)), payment=None, issued=ISSUED, language="zh-Hant")
+        return page.lines[0].notes[1].rsplit(" · ", 1)[1]
+
+    assert cabin(odd) == "Sleeper suite"
+    assert cabin(known) == "豪華經濟艙"
+
+
+def test_every_language_of_the_payment_page_has_a_statement_that_says_all_that_the_english_one_says():
+    english = statement_text.WORDS["en"]
+
+    def shape(value):
+        """What a caller relies on: the keys, how many parts a text has, and which blanks it fills."""
+        if isinstance(value, dict):
+            return {key: shape(inner) for key, inner in value.items()}
+        if isinstance(value, tuple):
+            return tuple(shape(inner) for inner in value)
+        return sorted(set(re.findall(r"{(\w+)}", value))) if isinstance(value, str) else value
+
+    assert set(statement_text.WORDS) == set(payment.PAGE_LANGUAGES)
+    assert statement_text.FALLBACK == payment.FALLBACK_LANGUAGE
+    for language, words in statement_text.WORDS.items():
+        mine, theirs = shape(words), shape(english)
+        for key in ("months", "weekdays", "day", "short_day", "weekday_day", "span_in_month", "span_in_year", "lead_gap"):
+            mine.pop(key), theirs.pop(key)  # a date is written with other parts in each language
+        assert mine == theirs, language
+        assert len(words["weekdays"]) == 7

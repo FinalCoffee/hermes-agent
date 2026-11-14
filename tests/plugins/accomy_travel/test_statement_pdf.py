@@ -1,8 +1,14 @@
 """The PDF of an order's statement: what a reader finds on the page, and which fonts carry it.
 
 The pages are read back with pypdf. ``fixtures/fonts/wqy-microhei-subset.ttf`` stands in for the wide font of the
-image: the 28 characters these tests use, cut from WenQuanYi Micro Hei 0.2.0-beta (Apache License 2.0, see the
-NOTICE beside it) with fontTools' pyftsubset."""
+image: the characters of the statement's own words in every language (statement_text.py) and those these tests
+write, cut from WenQuanYi Micro Hei 0.2.0-beta (Apache License 2.0, see the NOTICE beside it) with fontTools'
+pyftsubset. It is cut from the font the image installs, so a character it holds is one the image draws. When a
+word with a new character is added, cut it again:
+
+    pyftsubset wqy-microhei.ttc --font-number=0 --text-file=<every character, with a space> \
+        --layout-features='' --no-hinting --name-IDs='*' --notdef-outline --output-file=wqy-microhei-subset.ttf
+"""
 
 import io
 import re
@@ -12,7 +18,7 @@ from pathlib import Path
 import pypdf
 import pytest
 
-from plugins.accomy_travel import statement_pdf
+from plugins.accomy_travel import payment, statement, statement_pdf, statement_text
 from plugins.accomy_travel.statement import Column, Line, Statement
 
 FONT = Path(__file__).parent / "fixtures" / "fonts" / "wqy-microhei-subset.ttf"
@@ -35,7 +41,7 @@ def no_wide_font(monkeypatch):
 
 
 def _page(*, lines=None, ordered_by=("Mei Lin", "mei@example.com"), travellers=("LIN Mei",),
-          trip=("Singapore in November", "16–22 Nov 2026", "Trip TR8K2M4N6P8Q0R")) -> Statement:
+          trip=("Singapore in November", "16–22 Nov 2026", "Trip TR8K2M4N6P8Q0R"), language="en") -> Statement:
     if lines is None:
         lines = (Line("TPE to SIN, SIN to TPE", ("Round trip", "TR897 · Mon 16 Nov · 08:05 TPE to 12:40 SIN · Economy"),
                       "16–22 Nov 2026", "1 passenger", "326.00"),)
@@ -46,7 +52,8 @@ def _page(*, lines=None, ordered_by=("Mei Lin", "mei@example.com"), travellers=(
         lines=tuple(lines), currency="USD", total="326.00",
         summary=(Column("Payment", ("Demonstration payment made", "Nothing was charged")),
                  Column("Order", ("Demonstration order", "Not placed with a supplier", "Placed 14 Nov 2026 UTC")),
-                 Column("Trip", trip)))
+                 Column("Trip", trip)),
+        page=statement.page(language, "14 Nov 2026 UTC"))
 
 
 def _read(page: Statement) -> pypdf.PdfReader:
@@ -248,3 +255,107 @@ def test_the_logo_drawn_is_the_one_in_the_file(tmp_path, monkeypatch, no_wide_fo
     leaf = '<path d="M5,5 C6 6 7 6 8 5 C9 4 9 3 8 2C7 1 6 1 5,2Z"/>'  # three curves, written as a design tool does
 
     assert _curves(box + leaf, tmp_path, monkeypatch) - _curves(box, tmp_path, monkeypatch) == 3
+
+
+# ── The language ──────────────────────────────────────────────────────────────
+
+# What no edit may take off a page in any language, spelled out here and not read from the module.
+NOTICE_IN = {
+    "zh-Hant": ("示範訂單，不是機票也不是訂位憑證", "本文件不是機票、訂位確認、收據或統一發票", "訂單明細與行程表", "第 {n} 頁"),
+    "zh-Hans": ("演示订单，不是机票也不是预订凭证", "本文件不是机票、预订确认、收据或发票", "订单明细与行程单", "第 {n} 页"),
+    "ja": ("デモ注文です。航空券や予約ではありません", "この書類は航空券、予約確認書、領収書、適格請求書（インボイス）ではありません",
+           "ご注文明細・旅程表", "{n} ページ"),
+    "ko": ("데모 주문입니다. 항공권이나 예약이 아니며", "이 문서는 항공권, 예약 확인서, 영수증 또는 세금계산서가 아닙니다",
+           "주문 명세서 및 여정표", "{n}쪽"),
+}
+
+
+def _plain(text: str) -> str:
+    """Text without its spaces: a PDF keeps none between two characters of Chinese, and pypdf may add one."""
+    return "".join(text.split())
+
+
+@pytest.mark.parametrize("language", sorted(NOTICE_IN))
+def test_every_page_of_a_statement_says_in_its_own_language_that_the_order_is_a_demonstration(wide_font, language):
+    notice, what_it_is_not, title, numbered = NOTICE_IN[language]
+    endless = Line("TPE → SIN", tuple(f"TR{number:03} · 08:05 TPE → 12:40 SIN" for number in range(80)),
+                   "2026", "1", "326.00")
+
+    reader = _read(_page(lines=[endless], language=language))
+
+    assert len(reader.pages) > 1
+    for number in range(len(reader.pages)):
+        text = _plain(_text(reader, number))
+        assert _plain(notice) in text
+        assert _plain(f"{REFERENCE} · {numbered.format(n=number + 1)}") in text
+    assert _plain(title) in _plain(_text(reader, 0))
+    assert _plain(what_it_is_not) in _plain(_text(reader, len(reader.pages) - 1))
+    assert NOTICE_ON_EVERY_PAGE not in " ".join(_text(reader, number) for number in range(len(reader.pages)))
+
+
+@pytest.mark.parametrize("language", payment.PAGE_LANGUAGES)
+def test_the_file_of_a_statement_is_named_in_its_language_for_the_viewer_that_opens_it(wide_font, language):
+    words = statement_text.WORDS[language]
+
+    information = _read(_page(language=language)).metadata
+
+    assert information.title == words["pdf_title"].format(reference=REFERENCE)
+    assert information.subject == words["pdf_subject"]
+
+
+def test_every_character_of_the_statements_own_words_is_one_the_font_draws(wide_font):
+    # The test font is a cut of the image's, so what it holds the image draws (see the top of this file).
+    def texts(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, dict):
+            for inner in value.values():
+                yield from texts(inner)
+        elif isinstance(value, tuple):
+            for inner in value:
+                yield from texts(inner)
+
+    for language, words in statement_text.WORDS.items():
+        for text in texts(words):
+            shown = "".join(run for _, run in statement_pdf._runs(text))
+            # Nothing dropped and nothing turned into a question mark: the page says what the words say.
+            assert shown == " ".join(text.split()), (language, text)
+
+
+@pytest.mark.parametrize("language", payment.PAGE_LANGUAGES)
+def test_the_notice_and_the_footer_fit_the_width_of_the_page_in_every_language(wide_font, language):
+    words = statement.page(language, "14 Nov 2026 UTC")
+    room = statement_pdf.CONTENT_WIDTH
+
+    assert statement_pdf._width(words.banner, statement_pdf.BOLD, statement_pdf.BANNER_SIZE) <= room
+    assert statement_pdf._width(words.footer, statement_pdf.TEXT, statement_pdf.FOOTER_SIZE) <= room
+    numbered = f"{REFERENCE} · {words.page_number.format(n=99)}"
+    assert (statement_pdf._width(statement_pdf.BRAND_LINE, statement_pdf.TEXT, statement_pdf.FOOTER_SIZE)
+            + statement_pdf._width(numbered, statement_pdf.TEXT, statement_pdf.FOOTER_SIZE)) < room
+
+
+def _baselines(page) -> list[str]:
+    """The text of a page by the line it stands on, without spaces: what shares a height on the paper."""
+    drawn: dict[float, list[tuple[float, str]]] = {}
+
+    def note(text, cm, tm, _font, _size):
+        across = tm[4] * cm[0] + tm[5] * cm[2] + cm[4]
+        up = tm[4] * cm[1] + tm[5] * cm[3] + cm[5]
+        drawn.setdefault(round(up, 1), []).append((across, text))
+
+    page.extract_text(visitor_text=note)
+    # pypdf places every piece of one cell at the cell's start, so the pieces keep the order they were drawn in.
+    return ["".join("".join(text for _, text in sorted(line, key=lambda piece: piece[0])).split())
+            for line in drawn.values()]
+
+
+@pytest.mark.parametrize(("language", "dates"), [
+    ("zh-Hant", "2026年11月16日–20日"), ("ja", "2026年12月30日–2027年1月2日"), ("ko", "2026년 12월 30일–2027년 1월 2일"),
+    ("en", "30 Dec 2026–2 Jan 2027"),
+])
+def test_the_dates_of_an_item_stand_on_one_line_however_a_language_writes_them(wide_font, language, dates):
+    stay = Line("HOTEL 88", ("1",), dates, "3", "414.00")
+
+    lines = _baselines(_read(_page(lines=[stay], language=language)).pages[0])
+
+    assert any(_plain(dates) in line for line in lines)

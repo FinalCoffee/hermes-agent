@@ -2,7 +2,8 @@
 
 One A4 document in Accomy's colours: the logo on a purple band, a notice that the order is a demonstration, who
 ordered and who travels, the items with their dates and amounts, the total, and what the document is and is not.
-Every word of an order comes ready in a ``Statement`` (statement.py): nothing here reads an order.
+Every word comes ready in a ``Statement`` (statement.py), in the language it is written in: nothing here reads
+an order, and nothing here is a word of the page besides the brand's own name.
 
 Text a user or a supplier wrote (a name, a trip's title, a hotel's name) is escaped before it becomes paragraph
 markup, so it can never add a tag: reportlab's markup can pull in a picture from a path, or a link.
@@ -11,7 +12,9 @@ The standard PDF fonts draw Windows-1252 text and nothing else. Any other charac
 of the host (``WIDE_FONT_FILES``, in the image through the Dockerfile), embedded in the document so that every
 viewer shows it. For a character neither font holds, reportlab would draw a black box: a letter or a digit
 becomes a question mark instead, so that a name in such a script is seen to be missing, and anything else, such
-as an emoji, is left out.
+as an emoji, is left out. The wide font has one weight, so what is bold in Latin letters is not in Chinese,
+Japanese or Korean. A heading in spaced capitals is drawn larger in those scripts, which do not read at the
+size of small capitals.
 
 This module loads reportlab, so tools_orders.py imports it when a statement is asked for, not with the plugin.
 """
@@ -31,11 +34,12 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import FILL_EVEN_ODD
 from reportlab.platypus import BaseDocTemplate, Flowable, Frame, PageTemplate, Paragraph, Spacer, Table, TableStyle
 
-from .statement import Column, Statement
+from .statement import Column, Page, Statement
 
 logger = logging.getLogger(__name__)
 
@@ -70,20 +74,10 @@ WIDE_FONT_FILES: tuple[tuple[str, int], ...] = (("/usr/share/fonts/truetype/wqy/
 LOGO_FILE = Path(__file__).parent / "assets" / "accomy-logo.svg"
 LOGO_HEIGHT = 15.0
 
-DOCUMENT_TITLE = "Order statement and itinerary"
-DEMO_BANNER = ("Demonstration order. It is not a ticket or a booking: "
-               "no airline, hotel or organiser holds it, and nothing was charged.")
-WHAT_IT_IS = (
-    "<b>What this document is.</b> A record of a demonstration order made with Accomy AI Travel: the itinerary "
-    "and the prices as they were shown when the order was placed.")
-WHAT_IT_IS_NOT = (
-    "<b>What it is not.</b> This is not a ticket, a booking confirmation, a receipt or a tax invoice. The order "
-    "was not placed with any airline, hotel or event organiser, and nothing was charged.")
-FOOTER_LINES = (
-    "Accomy AI Travel · accomy.com",
-    "Generated automatically, so no signature is required. Questions about this order: ask the assistant in the "
-    "chat it was placed in.",
-)
+BRAND_TAG = "AI TRAVEL"
+BRAND_LINE = "Accomy AI Travel · accomy.com"
+BANNER_SIZE = 7.2
+FOOTER_SIZE = 6.6
 
 # reportlab keeps its fonts in one registry for the process, and a font keeps state for each document being
 # built. Tool handlers run on a thread pool, so one statement is drawn at a time.
@@ -103,6 +97,8 @@ def _wide() -> frozenset[int]:
             if Path(path).is_file():
                 font = TTFont(WIDE, path, subfontIndex=face)
                 pdfmetrics.registerFont(font)
+                # One weight: bold and italic markup around a run in this font draws it as it is.
+                registerFontFamily(WIDE, normal=WIDE, bold=WIDE, italic=WIDE, boldItalic=WIDE)
                 found = frozenset(font.face.charToGlyph)
                 break
         else:
@@ -120,37 +116,57 @@ def _standard(char: str) -> bool:
     return True
 
 
-def markup(text: str) -> str:
-    """*text* as paragraph markup that shows it literally: escaped, and each run in a font that holds it."""
+def _runs(text: str) -> list[tuple[bool, str]]:
+    """*text* cut into runs of one font each, as (drawn with the wide font, the characters). Whitespace is
+    folded, and what no font holds becomes a question mark or is left out."""
     wide = _wide()
-    pieces: list[str] = []
-    run: list[str] = []
-    run_is_wide = False
-
-    def close_run() -> None:
-        if run:
-            piece = escape("".join(run))
-            pieces.append(f'<font name="{WIDE}">{piece}</font>' if run_is_wide else piece)
-            run.clear()
-
+    runs: list[tuple[bool, str]] = []
     # Composed forms first: a font holds "ễ" as one character, and reportlab does not join a letter to its marks.
     for char in " ".join(unicodedata.normalize("NFC", text).split()):
         if not char.isprintable():
             continue  # a soft hyphen or a zero-width joiner has a glyph in some fonts, and is never meant to show
         if _standard(char):
-            needs_wide = False
+            # A space after a character of the wide font is drawn with that font, so a line of Korean is one run.
+            needs_wide = char == " " and bool(runs) and runs[-1][0] and ord(char) in wide
         elif ord(char) in wide:
             needs_wide = True
         elif unicodedata.category(char)[0] in "LN":
             char, needs_wide = "?", False
         else:
             continue
-        if needs_wide != run_is_wide:
-            close_run()
-            run_is_wide = needs_wide
-        run.append(char)
-    close_run()
-    return "".join(pieces)
+        if runs and runs[-1][0] == needs_wide:
+            runs[-1] = (needs_wide, runs[-1][1] + char)
+        else:
+            runs.append((needs_wide, char))
+    return runs
+
+
+def markup(text: str) -> str:
+    """*text* as paragraph markup that shows it literally: escaped, and each run in a font that holds it."""
+    return "".join(f'<font name="{WIDE}">{escape(run)}</font>' if wide else escape(run) for wide, run in _runs(text))
+
+
+def _width(text: str, font: str, size: float, spacing: float = 0.0) -> float:
+    """How wide _draw makes *text*."""
+    runs = _runs(text)
+    letters = sum(len(run) for _, run in runs)
+    return (sum(pdfmetrics.stringWidth(run, WIDE if wide else font, size) for wide, run in runs)
+            + spacing * max(letters - 1, 0))
+
+
+def _draw(canvas, x: float, y: float, text: str, font: str, size: float, colour, *,
+          spacing: float = 0.0, right: bool = False) -> None:
+    """Draw one line of *text* on the canvas from (x, y), or up to it when *right*: each run in a font that
+    holds it, as markup does for a paragraph."""
+    line = canvas.beginText(x - _width(text, font, size, spacing) if right else x, y)
+    line.setFillColor(colour)
+    line.setCharSpace(spacing)
+    for wide, run in _runs(text):
+        line.setFont(WIDE if wide else font, size)
+        line.textOut(run)
+    canvas.saveState()  # the letter spacing must not reach what is drawn after this line
+    canvas.drawText(line)
+    canvas.restoreState()
 
 
 def _style(name: str, font: str, size: float, colour, leading: float, **more) -> ParagraphStyle:
@@ -175,25 +191,21 @@ SMALL = _style("small", TEXT, 7.8, INK, 11.5)
 class Label(Flowable):
     """A small heading in spaced capitals, as over each block of the page."""
 
-    SIZE, SPACING = 5.6, 1.1
+    SIZE, WIDE_SIZE, SPACING = 5.6, 7.0, 1.1
 
     def __init__(self, text: str, *, right: bool = False) -> None:
         super().__init__()
         self.text, self.right = text.upper(), right
+        self.size = self.WIDE_SIZE if any(wide for wide, _ in _runs(self.text)) else self.SIZE
         self.width = 0.0
 
     def wrap(self, avail_width, avail_height):
         self.width = avail_width
-        return avail_width, self.SIZE + 3
+        return avail_width, self.size + 3
 
     def draw(self) -> None:
-        length = pdfmetrics.stringWidth(self.text, MONO, self.SIZE) + self.SPACING * (len(self.text) - 1)
-        line = self.canv.beginText(self.width - length if self.right else 0, 2)
-        line.setFont(MONO, self.SIZE)
-        line.setCharSpace(self.SPACING)
-        line.setFillColor(SOFT)
-        line.textOut(self.text)
-        self.canv.drawText(line)
+        _draw(self.canv, self.width if self.right else 0, 2, self.text, MONO, self.size, SOFT,
+              spacing=self.SPACING, right=self.right)
 
 
 class Pill(Flowable):
@@ -212,13 +224,11 @@ class Pill(Flowable):
         return avail_width, self.HEIGHT
 
     def draw(self) -> None:
-        box = pdfmetrics.stringWidth(self.text, BOLD, self.SIZE) + 2 * self.PAD
+        box = _width(self.text, BOLD, self.SIZE) + 2 * self.PAD
         left = self.width - box
         self.canv.setFillColor(self.fill)
         self.canv.roundRect(left, 0, box, self.HEIGHT, self.HEIGHT / 2, stroke=0, fill=1)
-        self.canv.setFillColor(self.ink)
-        self.canv.setFont(BOLD, self.SIZE)
-        self.canv.drawString(left + self.PAD, (self.HEIGHT - self.SIZE) / 2 + 1.2, self.text)
+        _draw(self.canv, left + self.PAD, (self.HEIGHT - self.SIZE) / 2 + 1.2, self.text, BOLD, self.SIZE, self.ink)
 
 
 # ---- the logo --------------------------------------------------------------------------------------
@@ -311,31 +321,21 @@ def _furniture(statement: Statement):
 
         logo_bottom = top + (BAND_HEIGHT - LOGO_HEIGHT) / 2
         logo_width = _draw_logo(canvas, MARGIN, logo_bottom, LOGO_HEIGHT)
-        canvas.saveState()  # the letter spacing of the tag must not reach the lines drawn after it
-        tag = canvas.beginText(MARGIN + logo_width + 12, logo_bottom + 3.4)
-        tag.setFont(MONO, 5.6)
-        tag.setCharSpace(1.3)
-        tag.setFillColor(BAND_LABEL)
-        tag.textOut("AI TRAVEL")
-        canvas.drawText(tag)
-        canvas.restoreState()
+        _draw(canvas, MARGIN + logo_width + 12, logo_bottom + 3.4, BRAND_TAG, MONO, 5.6, BAND_LABEL, spacing=1.3)
 
         canvas.saveState()
         canvas.setFillColor(AMBER_TINT)
         canvas.rect(0, top - NOTICE_HEIGHT, PAGE_WIDTH, NOTICE_HEIGHT, stroke=0, fill=1)
-        canvas.setFillColor(AMBER_INK)
-        canvas.setFont(BOLD, 7.2)
-        canvas.drawString(MARGIN, top - NOTICE_HEIGHT + 6.4, DEMO_BANNER)
-
         canvas.setStrokeColor(HAIRLINE)
         canvas.setLineWidth(0.8)
         canvas.line(MARGIN, FOOTER_HEIGHT - 10, PAGE_WIDTH - MARGIN, FOOTER_HEIGHT - 10)
-        canvas.setFillColor(SOFT)
-        canvas.setFont(TEXT, 6.6)
-        canvas.drawString(MARGIN, FOOTER_HEIGHT - 22, FOOTER_LINES[0])
-        canvas.drawString(MARGIN, FOOTER_HEIGHT - 31, FOOTER_LINES[1])
-        canvas.drawRightString(PAGE_WIDTH - MARGIN, FOOTER_HEIGHT - 22, f"{statement.reference} · page {doc.page}")
         canvas.restoreState()
+        words = statement.page
+        _draw(canvas, MARGIN, top - NOTICE_HEIGHT + 6.4, words.banner, BOLD, BANNER_SIZE, AMBER_INK)
+        _draw(canvas, MARGIN, FOOTER_HEIGHT - 22, BRAND_LINE, TEXT, FOOTER_SIZE, SOFT)
+        _draw(canvas, MARGIN, FOOTER_HEIGHT - 31, words.footer, TEXT, FOOTER_SIZE, SOFT)
+        _draw(canvas, PAGE_WIDTH - MARGIN, FOOTER_HEIGHT - 22,
+              f"{statement.reference} · {words.page_number.format(n=doc.page)}", TEXT, FOOTER_SIZE, SOFT, right=True)
 
     return draw
 
@@ -346,9 +346,10 @@ _FLUSH = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1),
 
 
 def _head(statement: Statement) -> Table:
-    left = [Label("Document"), Spacer(0, 4), Paragraph(DOCUMENT_TITLE, TITLE)]
-    right = [Label("Reference", right=True), Spacer(0, 4), Paragraph(markup(statement.reference), REFERENCE),
-             Spacer(0, 2), Label(f"Issued {statement.issued}", right=True), Spacer(0, 6),
+    words = statement.page
+    left = [Label(words.document), Spacer(0, 4), Paragraph(markup(words.title), TITLE)]
+    right = [Label(words.reference, right=True), Spacer(0, 4), Paragraph(markup(statement.reference), REFERENCE),
+             Spacer(0, 2), Label(words.issued, right=True), Spacer(0, 6),
              Pill(statement.status, statement.status_tone)]
     table = Table([[left, right]], colWidths=[CONTENT_WIDTH * 0.55, CONTENT_WIDTH * 0.45])
     table.setStyle(TableStyle([
@@ -363,18 +364,27 @@ def _columns(columns: tuple[Column, Column, Column]) -> Table:
         cell += [Paragraph(markup(line), STRONG if index == 0 else BODY) for index, line in enumerate(column.lines)]
         cells.append(cell)
     # Nine travellers with the longest names the order takes are taller than a page: the row may split.
-    table = Table([cells], colWidths=[CONTENT_WIDTH * 0.35, CONTENT_WIDTH * 0.35, CONTENT_WIDTH * 0.30], splitInRow=1)
-    table.setStyle(TableStyle([*_FLUSH, ("RIGHTPADDING", (0, 0), (-1, -1), 14)]))
+    table = Table([cells], colWidths=[CONTENT_WIDTH * 0.34, CONTENT_WIDTH * 0.34, CONTENT_WIDTH * 0.32], splitInRow=1)
+    # The last column runs to the edge of the page's text: the days of a trip over the new year, written out in
+    # Korean, need all of it.
+    table.setStyle(TableStyle([*_FLUSH, ("RIGHTPADDING", (0, 0), (-2, -1), 14)]))
     return table
 
 
 def _items(statement: Statement) -> Table:
-    rows: list[list] = [[Label("Description"), Label("Dates"), Label("Quantity"), Label("Amount", right=True)]]
+    words = statement.page
+    rows: list[list] = [[Label(words.description), Label(words.dates), Label(words.quantity),
+                         Label(words.amount, right=True)]]
     for line in statement.lines:
         description = [Paragraph(markup(line.title), STRONG), *(Paragraph(markup(note), NOTE) for note in line.notes)]
         rows.append([description, Paragraph(markup(line.dates), CELL), Paragraph(markup(line.quantity), CELL),
                      Paragraph(markup(line.amount), CELL_RIGHT)])
-    widths = [CONTENT_WIDTH * 0.48, CONTENT_WIDTH * 0.20, CONTENT_WIDTH * 0.17, CONTENT_WIDTH * 0.15]
+    # The dates take the width of the longest of them, within bounds, and the description gives it up: a date
+    # written with its year, month and day in characters is wider than one in English, and must not break.
+    longest = max((_width(line.dates, MONO, CELL.fontSize) for line in statement.lines), default=0.0)
+    # The upper bound holds the widest date there is: a stay over the new year, written out in Korean.
+    dates = min(max(CONTENT_WIDTH * 0.20, longest + 12), CONTENT_WIDTH * 0.30)
+    widths = [CONTENT_WIDTH * 0.68 - dates, dates, CONTENT_WIDTH * 0.17, CONTENT_WIDTH * 0.15]
     # A long order runs on to the next page under the same headings, and so does one item taller than a page.
     table = Table(rows, colWidths=widths, repeatRows=1, splitInRow=1)
     table.setStyle(TableStyle([
@@ -389,10 +399,11 @@ def _items(statement: Statement) -> Table:
 def _total(statement: Statement) -> Table:
     width = CONTENT_WIDTH * 0.43
     amount = markup(f"{statement.currency} {statement.total}")
-    rows = [[Paragraph("Total", TOTAL_LABEL), Paragraph(amount, TOTAL_VALUE)],
-            [Paragraph("Demonstration: nothing was charged", NOTE), ""]]
+    words = statement.page
+    rows = [[Paragraph(markup(words.total), TOTAL_LABEL), Paragraph(amount, TOTAL_VALUE)],
+            [Paragraph(markup(words.not_charged), NOTE), ""]]
     if len(statement.lines) > 1:
-        rows.insert(0, [Paragraph("Subtotal", SUM_LABEL), Paragraph(amount, SUM_VALUE)])
+        rows.insert(0, [Paragraph(markup(words.subtotal), SUM_LABEL), Paragraph(amount, SUM_VALUE)])
     total_row = len(rows) - 2
     sums = Table(rows, colWidths=[width * 0.45, width * 0.55])
     sums.setStyle(TableStyle([
@@ -405,9 +416,12 @@ def _total(statement: Statement) -> Table:
     return table
 
 
-def _explanation() -> Table:
-    box = Table([[[Paragraph(WHAT_IT_IS, SMALL), Spacer(0, 4), Paragraph(WHAT_IT_IS_NOT, SMALL)]]],
-                colWidths=[CONTENT_WIDTH])
+def _explanation(words: Page) -> Table:
+    said: list = []
+    for lead, rest in words.explanation:
+        said += [Spacer(0, 4)] * bool(said)
+        said.append(Paragraph(f"<b>{markup(lead)}</b>{words.lead_gap}{markup(rest)}", SMALL))
+    box = Table([[said]], colWidths=[CONTENT_WIDTH])
     box.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), TINT), ("BOX", (0, 0), (-1, -1), 0.8, TINT_EDGE),
         ("ROUNDEDCORNERS", [6, 6, 6, 6]),
@@ -424,12 +438,12 @@ def render(statement: Statement) -> bytes:
         frame = Frame(MARGIN, FOOTER_HEIGHT, CONTENT_WIDTH, PAGE_HEIGHT - CONTENT_TOP - FOOTER_HEIGHT,
                       leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
         doc = BaseDocTemplate(
-            out, pagesize=A4, title=f"Accomy order statement {statement.reference}", author="Accomy AI Travel",
-            subject="Demonstration order", creator="Accomy AI Travel")
+            out, pagesize=A4, title=statement.page.pdf_title.format(reference=statement.reference),
+            author="Accomy AI Travel", subject=statement.page.pdf_subject, creator="Accomy AI Travel")
         doc.addPageTemplates(PageTemplate(id="statement", frames=[frame], onPage=_furniture(statement)))
         doc.build([
             _head(statement), Spacer(0, 12), _columns(statement.parties), Spacer(0, 22),
             _items(statement), _total(statement), Spacer(0, 26), _columns(statement.summary), Spacer(0, 22),
-            _explanation(),
+            _explanation(statement.page),
         ])
         return out.getvalue()

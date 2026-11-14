@@ -114,5 +114,9 @@ Keep these true:
   host. Ask the user before running any of them.
 - The payment page charges nothing. It accepts one public test card and sends the buyer one Telegram message.
   Apart from the order database, it is the only service the order tools contact: to void the link of a
-  cancelled order and to ask whether an order was paid. The bot and the page share the key named
-  `ACCOMY_PAYMENT_LINK_SECRET`.
+  cancelled order, to ask whether an order was paid, and to leave the statement that is mailed when an order
+  with an email address is paid. The bot and the page share the key named `ACCOMY_PAYMENT_LINK_SECRET`.
+- The page is the only thing that sends email, through Amazon SES, from the one address it was deployed with
+  (`ACCOMY_STATEMENT_SENDER`); its role may send from no other. Until it is paid, cancelled or past its link,
+  an order's statement and the contact's address lie in the page's table: that is personal data outside the
+  order database, so keep the row's expiry and the delete on Pay and on void.

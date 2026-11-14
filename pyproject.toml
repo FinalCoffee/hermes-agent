@@ -586,6 +586,7 @@ test = [
   "asyncpg==0.32.0",
   "pypdf==6.21.4",
   "pypdfium2==5.14.0",
+  "reportlab==5.1.0",
 ]
 
 [build-system]

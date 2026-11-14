@@ -125,6 +125,7 @@ def test_a_command_line_run_without_any_session_cannot_order():
 @pytest.mark.parametrize("tool, args", [
     (tools_orders.list_trips, {}),
     (tools_orders.get_order, {"booking_code": "AC0000000000000"}),
+    (tools_orders.get_order_pdf, {"booking_code": "AC0000000000000"}),
     (tools_orders.cancel_order, {"booking_code": "AC0000000000000"}),
 ])
 def test_reading_and_cancelling_orders_is_also_private_chat_only(tool, args):
@@ -230,10 +231,11 @@ def test_list_trips_limit_is_bounded(args):
         assert _error(tools_orders.list_trips(args))[0] == "invalid_arguments"
 
 
+@pytest.mark.parametrize("tool", [tools_orders.get_order, tools_orders.get_order_pdf, tools_orders.cancel_order])
 @pytest.mark.parametrize("code", ["", "AC123", "XX1234567890AB", "AC0000000000IOU"])
-def test_a_booking_code_has_the_store_format(code):
+def test_a_booking_code_has_the_store_format(tool, code):
     with session():
-        assert _error(tools_orders.get_order({"booking_code": code}))[0] == "invalid_arguments"
+        assert _error(tool({"booking_code": code}))[0] == "invalid_arguments"
 
 
 # ── The store cannot be used ──────────────────────────────────────────────────

@@ -1,4 +1,5 @@
-"""Order tools: a demonstration order placed from the quotes a search showed, and the caller's own orders read or cancelled.
+"""Order tools: a demonstration order placed from the quotes a search showed, and the caller's own orders read,
+cancelled or handed over as a PDF statement.
 
 Every order here is SIMULATED. It is recorded in the bot's order database and confirmed there, with no supplier
 request, so no supplier, payment or cancel endpoint is ever called. Its prices come only from quotes (see quotes.py),
@@ -15,11 +16,12 @@ import re
 import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 from gateway.session_context import get_session_env
 
-from . import _common, fx, orderbridge, payment, quotes
+from . import _common, fx, orderbridge, payment, quotes, statement, statement_files
 from ._common import ApiError, ToolSpec
 from .orderstore import db, store
 
@@ -31,11 +33,22 @@ MAX_TICKETS_PER_ITEM = 10
 MAX_TRAVELLERS = 9
 ORDERS_PER_BUYER_PER_DAY = 100
 ORDERS_PER_DAY = 300
+# A statement is mailed to an address the buyer typed, which nobody has confirmed: these keep the bot from being
+# used to fill someone's mailbox, and bound the bounces that mail to made-up addresses brings on the sending
+# account. A buyer with more orders than this in a day still has each PDF in the chat.
+STATEMENT_MAILS_PER_BUYER_PER_DAY = 5
+STATEMENT_MAILS_PER_MAILBOX_PER_DAY = 3
+STATEMENT_MAILS_PER_DAY = 100
 ACTOR = "accomy-bot"  # who wrote the rows: a component of the bot, never a person
 LOCALE = "zh-TW"
 BOOKING_CODE_RE = re.compile(r"AC[0-9A-HJKMNP-TV-Z]{12}")
 TRIP_CODE_RE = re.compile(r"TR[0-9A-HJKMNP-TV-Z]{12}")
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+# What a statement may be mailed to: a plain mailbox on a plain host name, narrower than what a contact may
+# hold. The payment page holds the same pattern (_ADDRESS_RE in deploy/accomy/payment-demo/handler.py).
+_MAILBOX_RE = re.compile(
+    r"(?=[^@]{1,64}@)[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}")
 _PHONE_RE = re.compile(r"\+?[0-9][0-9 ()\-]{5,30}")
 _TRAVELLER_KINDS = ("ADULT", "CHILD", "INFANT")
 _LOCK_KEY = "accomy.orders.place"
@@ -333,6 +346,8 @@ async def _cancel(conn: Any, code: str, buyer: store.Buyer) -> store.Booking:
 
 
 NOT_FOUND = "No order with that booking code was found in this chat."
+NO_STATEMENT = "Only a confirmed order has a statement: that order is cancelled or finished."
+STATEMENT_FAILED = "The PDF could not be made. Tell the user to try again later, and read the order to them with get_order."
 
 
 # ---- results ---------------------------------------------------------------------------------------
@@ -423,6 +438,8 @@ def place_order(args: dict) -> str:
     view = _with_payment(_order_view(booking), booking, booking.replayed and payment.state(booking) == "PAID")
     if booking.replayed:
         view["replayed"] = True
+    elif "payment_url" in view and (mailed_to := _statement_by_mail(booking)):
+        view["statement_email"] = mailed_to
     return _common.ok(
         **view,
         notice=DEMO_NOTICE,
@@ -431,6 +448,9 @@ def place_order(args: dict) -> str:
             "with the supplier and that no payment was taken. Never claim a supplier confirmation number, an "
             "e-ticket or a payment. Quote the USD totals as given. When payment_url is present, give it to the "
             "user as the demo payment link, exactly as it is: the page is a demonstration that charges nothing. "
+            "When statement_email is present, tell the user that the order's PDF statement will be emailed to "
+            "that address once the demo payment is made. Without it no email will come: promise none, and if "
+            "the user expects one, offer the PDF here in the chat with get_order_pdf. "
             "Keep the trip_code: pass it to place_order when the user orders something else for the same trip."),
     )
 
@@ -446,7 +466,8 @@ def get_order(args: dict) -> str:
     return _common.ok(
         **_with_payment(_order_view(booking), booking, paid),
         hint="Read the order's status and items to the user. Amounts are in US dollars. payment says whether "
-             "the demo payment was made; when payment_url is present, give it as the demo payment link.")
+             "the demo payment was made; when payment_url is present, give it as the demo payment link. "
+             "get_order_pdf makes a PDF of a confirmed order.")
 
 
 def _day(value: Any) -> str | None:
@@ -475,6 +496,79 @@ def list_trips(args: dict) -> str:
         hint="Newest first. A trip's total leaves out cancelled orders. Use get_order with a booking_code for an "
              "order's items, and pass a trip_code to place_order to add to that trip." if trips
         else "This chat has no trips yet.")
+
+
+_mail_allowance = _common.RateLimiter()
+
+
+def _mailbox(email: str) -> str:
+    """The mailbox an address most likely delivers to, for counting: without capitals, without a "+tag" and
+    without dots in the name, which the large mail providers ignore. Counting together two mailboxes that differ
+    only by a dot costs one of them a mail; counting the spellings apart would let one mailbox be filled."""
+    name, _, host = email.lower().partition("@")
+    return f"{name.split('+', 1)[0].replace('.', '')}@{host}"
+
+
+def _statement_by_mail(booking: store.Booking) -> str | None:
+    """Leave the statement of a new order with the payment page, which mails it to the contact when the order is
+    paid. The address it will go to, or None: no address, one that cannot be mailed, an allowance used up, a page
+    that sends no mail. A failure here never fails the order, which is already placed."""
+    email = booking.contact.email
+    if not email or not _MAILBOX_RE.fullmatch(email):
+        return None
+    day = 86400.0
+    keys = (f"buyer:{booking.buyer.ref}", f"mailbox:{_mailbox(email)}", "all")
+    limits = (STATEMENT_MAILS_PER_BUYER_PER_DAY, STATEMENT_MAILS_PER_MAILBOX_PER_DAY, STATEMENT_MAILS_PER_DAY)
+    if _mail_allowance.admit(tuple((key, limit, day) for key, limit in zip(keys, limits))) is not None:
+        return None
+    try:
+        from . import statement_pdf  # as in _statement_file
+
+        # Drawn as paid: the page mails it only once the order is.
+        page = statement.build(booking, payment=statement.PAID, issued=dt.datetime.now(dt.UTC).date())
+        kept = payment.keep_statement(booking, email, statement_pdf.render(page)) == "KEPT"
+    except Exception:
+        logger.exception("accomy statement could not be left for mailing")
+        kept = False
+    if not kept:
+        _mail_allowance.refund(keys, 1)
+    return email if kept else None
+
+
+def _statement_file(booking: store.Booking) -> Path:
+    """Draw the order's statement and save it. A failure is answered with a fixed sentence, like the store's: what
+    a drawing library or the file system says names paths of the host."""
+    page = statement.build(booking, payment=payment.state(booking), issued=dt.datetime.now(dt.UTC).date())
+    try:
+        # Imported here, so that reportlab loads with the first statement and an install without it still has
+        # every other tool.
+        from . import statement_pdf
+
+        return statement_files.save(booking.code, statement_pdf.render(page))
+    except Exception:
+        logger.exception("accomy statement could not be made")
+        raise ApiError("statement_failed", STATEMENT_FAILED) from None
+
+
+@_common.tool_handler
+def get_order_pdf(args: dict) -> str:
+    buyer = _buyer()
+    code = _booking_code(args)
+    booking = _store_call(lambda conn: _read(conn, code, buyer))
+    if booking is None:
+        raise ApiError("not_found", NOT_FOUND)
+    if booking.status != "CONFIRMED":
+        raise ApiError("not_confirmed", NO_STATEMENT)
+    return _common.ok(
+        booking_code=booking.code,
+        send_line=f"MEDIA:{_statement_file(booking)}",
+        hint="The PDF is made and not yet sent. To send it, copy send_line into your reply on a line of its own, "
+             "just above the suggestions line, unchanged from its first letter M: it is an instruction to the chat "
+             "app, which takes the line out and attaches the file. Never translate it, shorten it or put a word "
+             "such as File before it, and never show the path in any other way. In the reply itself, tell the "
+             "user in a sentence what the file is: the statement and itinerary of a demonstration order, not a "
+             "ticket, a booking confirmation or a receipt. Call this tool again each time the user wants the "
+             "file: it is removed an hour after it is made.")
 
 
 @_common.tool_handler
@@ -574,6 +668,15 @@ _LIST_SCHEMA = {
 _GET_SCHEMA = _code_schema(
     "get_order", "One of this chat's orders with its items and USD amounts. Read-only.")
 
+_PDF_SCHEMA = _code_schema(
+    "get_order_pdf",
+    "Make a PDF of one of this chat's confirmed orders, to send to the user as a file: its statement and itinerary "
+    "with the travellers, each flight, hotel stay or ticket, the dates and the USD total. Use it when the user "
+    "asks for the order, its itinerary or its statement as a PDF, a file or a document. It is also all there is "
+    "for a user who asks for a ticket, a booking confirmation or a receipt: the page says that the order is a "
+    "demonstration and none of those, and so does the reply. The result holds the line that sends the file when "
+    "it is copied into the reply.")
+
 _CANCEL_SCHEMA = _code_schema(
     "cancel_order", "Cancel one of this chat's confirmed demonstration orders. No payment was taken, so nothing is refunded.")
 
@@ -584,5 +687,6 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(name="place_order", schema=_place_schema(), handler=place_order, requires_env=_DSN, emoji="🧾"),
     ToolSpec(name="list_trips", schema=_LIST_SCHEMA, handler=list_trips, requires_env=_DSN, emoji="🧳"),
     ToolSpec(name="get_order", schema=_GET_SCHEMA, handler=get_order, requires_env=_DSN, emoji="🧾"),
+    ToolSpec(name="get_order_pdf", schema=_PDF_SCHEMA, handler=get_order_pdf, requires_env=_DSN, emoji="📄"),
     ToolSpec(name="cancel_order", schema=_CANCEL_SCHEMA, handler=cancel_order, requires_env=_DSN, emoji="🧾"),
 )

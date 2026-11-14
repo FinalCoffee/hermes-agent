@@ -146,6 +146,17 @@ confirmed order carries a signed link to it, valid for 24 hours from the moment 
   and takes no payment. `get_order` asks the page whether an order was paid.
 - **What the link holds.** The order code, the trip name, the items and amounts, and the chat to notify. It is
   signed, not encrypted, and names no traveller. Anyone who is given the link can see that order and pay it.
+- **The statement by email.** When an order's contact gave an email address, the bot leaves the order's PDF
+  statement and that address with the page when the order is placed, in a request only the bot can sign. Pay
+  then sends the Telegram message and, after it, mails the PDF to the address through Amazon SES, once, in the
+  page's language; a second Telegram message says where it went. A payment the page takes back, because the
+  Telegram message could not be sent, has mailed nothing. The mail is sent whoever presses Pay: the link is
+  all it takes. The bot cannot do this itself: nothing tells it that an order was paid. The table holds the
+  file and the address until the order is paid or cancelled. An order that is never paid is never mailed: its
+  row expires with the payment link, and DynamoDB removes an expired row by itself within a few days. The
+  address was typed by the buyer and confirmed by nobody, so the mail says why it was sent and that it can be
+  ignored, holds none of the buyer's own words outside the PDF, and the bot limits how many statements a buyer
+  and a mailbox get in a day (`plugins/accomy_travel/README.md`, Limits).
 
 ```sh
 AWS_PROFILE=<profile> AWS_REGION=ap-southeast-1 deploy/accomy/payment-demo/deploy.sh ~/path/to/profile/.env
@@ -155,6 +166,13 @@ The script puts the bot token and a link-signing key in Parameter Store, creates
 and prints how to add the key to the bot's `.env` as `ACCOMY_PAYMENT_LINK_SECRET`. Put the page's address in the
 profile as `plugins.entries.accomy_travel.settings.payment_url`, add its host to `squid.conf` (the bot calls the page
 to void and to ask), reseed the secrets and restart the bot.
+
+The mail is off until the page has a sender: run the script with `ACCOMY_STATEMENT_SENDER=<address>`, for
+example `no-reply@accomy-tech.com`. It is a plain address, on a domain that is verified in Amazon SES in the
+same region, and the account must be out of the SES sandbox, or SES refuses every recipient that is not itself
+verified. The function may send from that
+one address and no other. Run without the variable, the script leaves a stack's sender as it is; with
+`ACCOMY_STATEMENT_SENDER=` (empty) the page keeps no statement and sends no mail.
 
 By default the page gets its own name, `dev-chatbot-payment.accomy-tech.com` (`ACCOMY_PAYMENT_DOMAIN`), which needs
 a free record in the hosted zone and an issued certificate for it. With `ACCOMY_PAYMENT_DOMAIN=` (empty) the page is

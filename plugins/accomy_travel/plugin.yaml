@@ -1,6 +1,6 @@
 name: accomy_travel
 version: 0.1.0
-description: "Accomy AI Travel: trip-planning tools (hotels and flights via the TMC open platform, event tickets via Seat Unique, places and weather via Google Maps Platform, public-web research via Brave) priced in US dollars, demonstration orders for hotels, flights and event tickets recorded in the order database (never sent to a supplier), reading of files a user sends and speech-to-text for voice notes via Amazon Transcribe, plus the travel-assistant persona, scope policy and suggested-reply instructions."
+description: "Accomy AI Travel: trip-planning tools (hotels and flights via the TMC open platform, event tickets via Seat Unique, places and weather via Google Maps Platform, public-web research via Brave) priced in US dollars, demonstration orders for hotels, flights and event tickets recorded in the order database (never sent to a supplier) with a PDF statement of each, reading of files a user sends and speech-to-text for voice notes via Amazon Transcribe, plus the travel-assistant persona, scope policy and suggested-reply instructions."
 author: Accomy
 kind: standalone
 provides_tools:
@@ -19,6 +19,7 @@ provides_tools:
   - place_order
   - list_trips
   - get_order
+  - get_order_pdf
   - cancel_order
   - read_attachment
 provides_hooks:

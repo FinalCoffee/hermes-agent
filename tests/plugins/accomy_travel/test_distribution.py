@@ -28,7 +28,7 @@ SECRETS = (
     "BRAVE_SEARCH_API_KEY",
     "ACCOMY_DATABASE_URL",
 )
-ORDER_TOOLS = {"place_order", "list_trips", "get_order", "cancel_order"}
+ORDER_TOOLS = {"place_order", "list_trips", "get_order", "get_order_pdf", "cancel_order"}
 REQUIRED_ENV_NAMES = {
     "OPENAI_API_KEY",
     "TMC_APP_KEY",
@@ -166,6 +166,26 @@ def test_a_reply_cannot_attach_a_host_file(dist_home, tmp_path, monkeypatch):
     apply_media_policy_env(load_config())
 
     assert validate_media_delivery_path(str(host_file)) is None
+
+
+def test_a_reply_can_attach_the_statement_of_an_order(dist_home, monkeypatch):
+    """The one file the bot makes itself is saved where that same strict rule lets a reply attach from."""
+    from gateway.media_policy import apply_media_policy_env
+    from gateway.platforms import base
+    from plugins.accomy_travel import statement_files
+
+    for name in ("HERMES_MEDIA_DELIVERY_STRICT", "HERMES_MEDIA_TRUST_RECENT_FILES", "HERMES_MEDIA_ALLOW_DIRS"):
+        monkeypatch.delenv(name, raising=False)
+    # The gateway fixes its cache folders when it loads, under the home of that moment: here, this test's home.
+    monkeypatch.setattr(base, "MEDIA_DELIVERY_SAFE_ROOTS", (base.get_document_cache_dir(),))
+    saved = statement_files.save("AC1234ABCD5678", b"%PDF-1.4 a statement")
+    apply_media_policy_env(load_config())
+
+    attached, shown = base.BasePlatformAdapter.extract_media(f"Here is the statement of your order.\nMEDIA:{saved}")
+
+    assert [path for path, _voice in attached] == [str(saved)]
+    assert shown == "Here is the statement of your order."
+    assert base.validate_media_delivery_path(str(saved)) == str(saved.resolve())
 
 
 def test_attachments_are_downloaded(dist_home):

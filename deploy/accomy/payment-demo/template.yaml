@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Accomy bot demo payment page: one Lambda behind an HTTP API, and a table that remembers per order
   whether it was paid or cancelled. It charges nothing; pressing Pay sends the traveller a Telegram
-  message, once. deploy.sh uploads the real code.
+  message, once, and mails the order's statement when the bot left one. deploy.sh uploads the real code.
 
 Parameters:
   DomainName:
@@ -22,9 +22,17 @@ Parameters:
   BotTokenParam:
     Type: String
     Default: /accomy/payment-demo/telegram-bot-token
+  StatementSender:
+    Type: String
+    Default: ""
+    Description: >
+      The address a paid order's statement is mailed from: a plain address on a domain verified in
+      Amazon SES in this region, in an account that is out of the SES sandbox. Empty: the page keeps no
+      statement and sends no mail.
 
 Conditions:
   OwnDomain: !Not [!Equals [!Ref DomainName, ""]]
+  SendsMail: !Not [!Equals [!Ref StatementSender, ""]]
 
 Resources:
   Role:
@@ -51,6 +59,15 @@ Resources:
               - Effect: Allow
                 Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem]
                 Resource: !GetAtt State.Arn
+              # Mail from the one sender address and no other, whatever identities the account has verified.
+              - !If
+                - SendsMail
+                - Effect: Allow
+                  Action: [ses:SendEmail, ses:SendRawEmail]
+                  Resource: !Sub arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*
+                  Condition:
+                    StringEquals: {"ses:FromAddress": !Ref StatementSender}
+                - !Ref AWS::NoValue
 
   State:
     Type: AWS::DynamoDB::Table
@@ -70,13 +87,16 @@ Resources:
       Architectures: [arm64]
       Handler: index.handler
       Role: !GetAtt Role.Arn
-      Timeout: 10
+      # Pay waits for Telegram and then for the mail service, each with its own shorter limit. The API
+      # gives up after 30 seconds.
+      Timeout: 28
       MemorySize: 128
       Environment:
         Variables:
           LINK_SECRET_PARAM: !Ref LinkSecretParam
           BOT_TOKEN_PARAM: !Ref BotTokenParam
           STATE_TABLE: !Ref State
+          STATEMENT_SENDER: !Ref StatementSender
       Code:
         # A placeholder: deploy.sh replaces it with handler.py right after the stack is up.
         ZipFile: |
@@ -130,6 +150,13 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: GET /s/{token}
+      Target: !Sub integrations/${Integration}
+
+  Statement:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /e/{token}
       Target: !Sub integrations/${Integration}
 
   Stage:

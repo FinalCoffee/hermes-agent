@@ -21,7 +21,7 @@ import re
 
 from gateway.config import Platform
 
-from . import _common, attachments, welcome
+from . import _common, attachments, statement_files, welcome
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,7 @@ async def gate_inbound(*, event, gateway=None, **_kwargs) -> dict | None:
     source = event.source
     if source.platform in _NOT_MESSAGING:
         return None
+    statement_files.sweep()  # here, so that no turn starts with a statement on disk that is past its hour
     if not _is_admitted(gateway, source):
         attachments.discard(event)  # core answers a stranger itself and reads none of their files
         return None

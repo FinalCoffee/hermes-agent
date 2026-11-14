@@ -6,7 +6,10 @@
 # The profile's .env supplies the bot token (the page sends Telegram messages as the bot). The key that
 # signs payment links is created once in Parameter Store; put the same value in the bot's .env as
 # ACCOMY_PAYMENT_LINK_SECRET (the last lines printed say how). No secret is printed or passed as an
-# argument. To remove everything: aws cloudformation delete-stack --stack-name accomy-payment-demo,
+# argument. ACCOMY_STATEMENT_SENDER=<address> turns on the mail of a paid order's statement, from that
+# address: its domain must be verified in Amazon SES in this region, and the account out of the SES
+# sandbox. Left unset, a stack keeps the sender it has; set to nothing, the page sends no mail.
+# To remove everything: aws cloudformation delete-stack --stack-name accomy-payment-demo,
 # then delete the two parameters under /accomy/payment-demo/. If the very first run fails, delete the
 # rolled-back stack the same way before running again.
 set -eu
@@ -46,7 +49,15 @@ if [ -n "$domain" ]; then
     overrides="HostedZoneId=$zone CertificateArn=$certificate"
 fi
 
-# shellcheck disable=SC2086  # $overrides is two KEY=VALUE words or nothing
+if [ -n "${ACCOMY_STATEMENT_SENDER+set}" ]; then
+    # A plain address or nothing: a display name or a space would be split here and refused by the page later.
+    case "$ACCOMY_STATEMENT_SENDER" in
+        *[!A-Za-z0-9._%+@-]*) echo "deploy: ACCOMY_STATEMENT_SENDER must be a plain address such as no-reply@example.com" >&2; exit 1 ;;
+    esac
+    overrides="$overrides StatementSender=$ACCOMY_STATEMENT_SENDER"
+fi
+
+# shellcheck disable=SC2086  # $overrides is KEY=VALUE words or nothing
 aws cloudformation deploy --stack-name "$stack" --template-file template.yaml --capabilities CAPABILITY_IAM \
     --no-fail-on-empty-changeset --parameter-overrides "DomainName=$domain" $overrides
 

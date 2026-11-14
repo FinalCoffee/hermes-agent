@@ -159,16 +159,19 @@ def request_json(
     json_body: Any = None,
     content: bytes | None = None,
     timeout: float = DEFAULT_TIMEOUT,
+    budget_key: str | None = None,
 ) -> tuple[int, Any]:
     """One HTTP exchange returning ``(status, parsed JSON body)``.
 
     Transport failures and non-JSON bodies raise ``ApiError``; HTTP error statuses are returned so
     each client can read its supplier's own error envelope. ``content`` sends exact bytes (signed
-    bodies must not be re-serialized). Redirects are never followed.
+    bodies must not be re-serialized). Redirects are never followed. ``budget_key`` counts the request
+    apart from the host's other traffic, for one that lookups to the same host must never crowd out.
     """
     host = urlparse(url).hostname or ""
     per_minute, per_day = SUPPLIER_BUDGETS.get(host, DEFAULT_SUPPLIER_BUDGET)
-    if _supplier_budget.admit(((f"{host}:minute", per_minute, 60.0), (f"{host}:day", per_day, 86400.0))) is not None:
+    meter = budget_key or host
+    if _supplier_budget.admit(((f"{meter}:minute", per_minute, 60.0), (f"{meter}:day", per_day, 86400.0))) is not None:
         raise ApiError("rate_limited", "The travel data service is busy. Try again later.")
     merged = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     try:

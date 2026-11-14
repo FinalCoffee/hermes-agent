@@ -63,7 +63,7 @@ plugins:
         transcribe_region: ap-southeast-1
         transcribe_languages: [zh-TW, en-US, ja-JP, ko-KR]
 
-# The plugin's 12 search tools and read_attachment, plus the four order tools when ACCOMY_DATABASE_URL is set.
+# The plugin's 12 search tools and read_attachment, plus the five order tools when ACCOMY_DATABASE_URL is set.
 # no_mcp stops globally enabled mcp_servers from joining (tools_config.py:747).
 platform_toolsets:
   telegram:

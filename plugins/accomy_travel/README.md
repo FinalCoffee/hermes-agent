@@ -11,7 +11,7 @@ The plugin is `plugins/accomy_travel/`. The operator profile is `distributions/a
 
 ## Tools
 
-The twelve search tools, the four order tools and `read_attachment` sit in the `accomy_travel` toolset. A tool
+The twelve search tools, the five order tools and `read_attachment` sit in the `accomy_travel` toolset. A tool
 is offered to the model only when the secrets it needs are set; the order tools also need `ACCOMY_DATABASE_URL`.
 
 | Tool | What it does | Needs |
@@ -31,6 +31,7 @@ is offered to the model only when the secrets it needs are set; the order tools 
 | `place_order` | Places a demonstration order for 1 to 3 quotes from the search results | `ACCOMY_DATABASE_URL` |
 | `list_trips` | This chat's trips, newest first, each with its orders | `ACCOMY_DATABASE_URL` |
 | `get_order` | One of this chat's orders, with its items | `ACCOMY_DATABASE_URL` |
+| `get_order_pdf` | Makes the PDF statement of one of this chat's confirmed orders, which the reply sends as a file | `ACCOMY_DATABASE_URL` |
 | `cancel_order` | Cancels one of this chat's demonstration orders | `ACCOMY_DATABASE_URL` |
 | `read_attachment` | Reads a file the user sent: a document's text, or the words spoken in an audio file or a video | nothing; speech needs the two `ACCOMY_TRANSCRIBE_` keys |
 
@@ -87,7 +88,8 @@ by `trip_title`, or after its first item); a later order for the same journey pa
 **Demo payment link.** When `plugins.entries.accomy_travel.settings.payment_url` and the secret
 `ACCOMY_PAYMENT_LINK_SECRET` are both set, a confirmed order carries `payment_url`: a signed link to the demo
 payment page in `deploy/accomy/payment-demo/`. That page charges nothing; pressing Pay there sends the user a
-Telegram message. The bot is not told, so it never says an order is paid.
+Telegram message. The bot is not told, so it never says an order is paid. When the contact gave an email
+address, the page also mails the order's PDF statement to it at that moment (see Order statement).
 
 ## Attachments
 
@@ -163,7 +165,8 @@ note that it could not be transcribed, and the assistant asks the user to type.
 
 **What it needs from the install.** `websockets` and `anydoc` are core dependencies of Hermes on Python 3.14.
 `pypdf` comes with the `documents` extra and `pypdfium2`, which draws scanned pages, with the `documents-pdf`
-extra; the container image installs both, and `ffmpeg` is in the image.
+extra; the container image installs both, and `ffmpeg` is in the image. `reportlab`, which draws an order's
+statement, comes with the `documents` extra as well.
 
 ## Secrets
 
@@ -270,6 +273,12 @@ taps, and a full day is about 100 messages. Change them where they are defined, 
 - `plugins/accomy_travel/speech.py`: seconds of speech a day and per recording.
 - `plugins/accomy_travel/_common.py`: tool-call limits and `SUPPLIER_BUDGETS` (per host).
 - `plugins/accomy_travel/tools_research.py`: the Brave limits per sender (10 a minute, 100 a day).
+- `plugins/accomy_travel/tools_orders.py`: the order limits, and how many statements are mailed a day.
+- `plugins/accomy_travel/statement_files.py`: how long a statement's file is kept.
+- `plugins/accomy_travel/payment.py`: how long a payment link lasts, and the largest statement left with the
+  payment page. The page holds that size too (`_STATEMENT_BYTES` in `deploy/accomy/payment-demo/handler.py`),
+  and the pattern of an address it mails to (`_ADDRESS_RE`, the bot's `_MAILBOX_RE`): change each pair together,
+  or the page refuses what the bot hands it. A test compares them.
 
 The supplier numbers for TMC, Google and Brave are not from a contract. Set them to your own quotas before you
 open the bot.
@@ -389,6 +398,14 @@ It becomes buttons only on Telegram with `telegram.suggested_replies: true`; oth
   for everyone per day (rolling 24 hours), 3 items per order, 10 event tickets per item, 9 travellers per order,
   and quotes that expire after 30 minutes. A refused order says why in the chat.
 - Orders are taken only in a private Telegram chat; a group, a channel or a sender-less session is refused.
+- An order's PDF statement is made for a confirmed order only, in English whatever language the chat uses,
+  and its file is kept for one hour (see Order statement).
+- A statement is mailed to an address that nobody confirmed, so mail is limited: 5 statements a day for a
+  buyer, 3 a day to one mailbox whoever orders, 100 a day in all. A mailbox is counted without capitals,
+  without a `+tag` and without dots in its name, so other spellings of it share the 3. These are counted in
+  memory, so a restart forgets them. Past them the order is placed as usual and the PDF is still to be had in
+  the chat. A statement larger than 300 KB is not mailed. Mail to an address that does not exist bounces, and
+  bounces count against the Amazon SES account the page sends from: the daily total is what bounds that.
 - Prices are converted with a fixed demo table of reference rates, so converted prices are approximate.
 - A supplier call waits 20 seconds for its answer. A flight search waits 60, because a route nobody has
   searched lately takes TMC about 20 seconds to price, and a flight price check waits 40, because the airline's
@@ -498,6 +515,54 @@ Left for the step that adds booking tools, each needing a decision first:
 
 Tests run against a real PostgreSQL 17 on `127.0.0.1:55433` and are skipped without it. The command to start
 one is at the top of `tests/plugins/accomy_travel/test_orderstore.py`.
+
+## Order statement
+
+A user can have a confirmed order as a PDF. `get_order_pdf` makes its statement and itinerary, and the reply
+sends the file, named `Accomy-statement-<booking code>.pdf`.
+
+- **What it says** comes from the order as the store holds it (`statement.py`): who ordered, the travellers
+  with the family name first, each item with its dates and amount, the total in US dollars, the trip, and what
+  the payment page answers for the order: paid or not paid. When the page cannot be asked, the statement claims
+  neither. Airports appear by their codes, because that is what an order keeps.
+- **It says that the order is a demonstration** in four places: a band across the top of every page, the
+  status box, the line under the total, and a box that says what the document is and what it is not (a ticket,
+  a booking confirmation, a receipt, a tax invoice). A user who asks for one of those gets the statement, and
+  the assistant says that it is none of them. A cancelled order has no statement.
+- **How it is drawn** is `statement_pdf.py`: an A4 page, or more for a long order, drawn with reportlab in the
+  colours of accomy.com, with the logo from `assets/accomy-logo.svg`. To change the logo, put another SVG in
+  its place whose paths use the absolute commands M, L, H, V, C and Z, which is how a design tool exports a
+  logo; any other file is refused when a statement is made. The colours are the constants at the top of the
+  module.
+- **Fonts.** The standard PDF fonts draw Latin text only. Chinese, Japanese and Korean, and accented letters
+  outside Windows-1252, are drawn with WenQuanYi Micro Hei: the image carries it (`fonts-wqy-microhei`, a step
+  of its own in the `Dockerfile`, which stops the build if the file is not where the plugin looks for it) and
+  each document embeds the characters it uses. A letter neither font holds, as in a name written in Arabic or
+  Thai, shows as a question mark, so that the name is seen to be missing; a symbol such as an emoji is left
+  out. A host without that font file draws the Latin text only, and says so once in the log.
+- **Text from a user or a supplier is escaped** before it becomes paragraph markup, because reportlab's markup
+  can load a picture from a path: a name or a trip title cannot add anything to the page.
+- **How the file reaches the user.** A plugin cannot send a file. The tool saves the PDF in the gateway's
+  document cache (`statement_files.py`), which is the only place the profile's strict delivery rule lets a
+  reply attach from, and returns a `MEDIA:` line that the assistant puts in its reply: the gateway takes the
+  line out of the text and sends the file. Each file lies in a folder with a random name, so nobody can work
+  out the path of someone else's statement from a booking code.
+- **How long the file is kept.** A statement holds a name, an email and a phone number, so its folder is
+  removed an hour after it was made: when the next statement is saved, and when the next message from anyone
+  reaches the bot. The gateway's own clearing of its caches does not look into folders.
+- **By email, once the order is paid.** When the contact of a new order gave an email address and the order
+  has a payment link, `place_order` draws the statement as it will read once paid and leaves it, with the
+  address, with the payment page, which mails it when Pay is pressed, by whoever holds the link. The page is
+  the one that can: the bot never hears of a payment. The result of `place_order` then holds
+  `statement_email`, and the assistant tells the user where the statement will go; without it the assistant
+  promises no email and offers the PDF in the chat. No email, and never a failed order, when: the contact
+  gave only a phone number; the address is not a plain mailbox on a plain host name (letters, digits and
+  `. _ % + -` before the `@`, no dot at either end of that part or twice in a row); a daily allowance is
+  used up; the page has no sender; the statement cannot be drawn or the page cannot be reached within 8
+  seconds. `deploy/accomy/README.md` says how the page is given its sender.
+- **What it needs from the install** is reportlab, from the `documents` extra like `pypdf`. The Docker image
+  has it. The plugin loads it when the first statement is asked for, so an install without it still runs the
+  rest of the plugin, and that one tool answers that the PDF could not be made.
 
 ## Upstream
 

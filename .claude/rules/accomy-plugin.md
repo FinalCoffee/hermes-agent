@@ -29,6 +29,7 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 | `quotes.py` | What each caller was shown, under short quote ids, and the flights picked so far in a trip |
 | `tools_orders.py`, `orderbridge.py`, `orderstore/` | Demonstration orders in PostgreSQL: connection, migrations, store, operator CLI |
 | `payment.py` | Signed links to the demo payment page, and the void and status requests to it |
+| `statement.py`, `statement_pdf.py`, `statement_files.py`, `assets/` | The PDF statement of an order: what it says, how it is drawn (with the logo), and where its file is kept and for how long |
 | `policy.py` | The prompt sections, the out-of-scope reminder, the suggested-replies footer |
 | `ingress.py`, `welcome.py` | The inbound gate with its limits, and the `/start` and `/help` replies |
 | `attachments.py` | The files senders attach: who sent each, the daily allowance, what an extension is read as |
@@ -53,6 +54,19 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   `option_id` (`quotes.FLIGHT_CHOICE`), which only `continue_from` accepts, and the last leg's flight gets the
   quote of the whole trip. Keep the two ids apart: an `option_id` is never orderable. The live price of a trip
   goes through `tmc_client.flight_fares` and then verify, because verify refuses the search's own key.
+- **A statement never passes for a ticket.** `statement_pdf.py` prints the demonstration notice on every
+  page, and `get_order_pdf` refuses an order that is not confirmed. Every text of an order reaches the page
+  through `statement_pdf.markup`, which escapes it: reportlab's paragraph markup can load a picture from a
+  path. The file is saved by `statement_files.save` in a folder with a random name under the gateway's document
+  cache: never under a name that follows from the booking code, which a user may have shared. It holds
+  personal data, and nothing but `statement_files.sweep` removes it: keep the call in `ingress.py`.
+- **A statement is mailed only through the payment page, and only after payment.** The bot has no mail service
+  and gets none: `payment.keep_statement` leaves the PDF and the contact's address with the page, in a request
+  whose token signs the hash of the body, and the page mails it on Pay. The address is unconfirmed, so
+  `tools_orders._statement_by_mail` holds the allowances and the narrow address check: keep both, and keep it
+  unable to fail an order. The page holds its own copy of that address pattern and of the size limit
+  (`deploy/accomy/payment-demo/handler.py`): change each pair together. No text of the buyer's goes into the
+  mail outside the PDF.
 - **Prices are in US dollars.** Tools return prices through `fx.py`. A price in a currency the table lacks is
   marked `unconverted` and cannot be ordered.
 - **The travel standard has one source.** Its numbers live in `standard.py`. The tools leave out what is
@@ -65,8 +79,8 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
 - **A hook never rewrites the system prompt.** The out-of-scope reminder goes into the current user turn, which
   keeps the prompt cache valid for the whole conversation.
 - **Only the published plugin API.** The plugin's core imports are `agent.secret_scope`,
-  `agent.transcription_provider`, `gateway.session_context`, `gateway.config.Platform` and `tools.registry`,
-  all listed in `hermes_cli/data/plugin_api.json`. Do not import another core module. Read a secret through
+  `agent.transcription_provider`, `gateway.session_context`, `gateway.config.Platform`, `tools.registry` and
+  `hermes_constants`, all listed in `hermes_cli/data/plugin_api.json`. Do not import another core module. Read a secret through
   `_common.secret`, never from `os.environ`.
 - **A file belongs to its sender.** `ingress.py` notes the files of an admitted message under the user who sent
   it and deletes the files of a message it drops. `read_attachment` opens only a file noted for the caller of
@@ -89,7 +103,7 @@ to `$HERMES_HOME/plugins/accomy_travel/` or to its own repository.
   Numbers run without gaps, and a migration file holds no transaction statement. A non-loopback database is
   refused unless its connection string verifies TLS (`orderstore/db.py`).
 - **Limits are named constants** in `ingress.py`, `attachments.py`, `documents.py`, `parsers.py`,
-  `_document_worker.py`, `ocr.py`, `speech.py`, `_common.py`, `tools_flights.py`, `tmc_client.py`, `tools_orders.py`, `tools_research.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
+  `_document_worker.py`, `ocr.py`, `speech.py`, `_common.py`, `tools_flights.py`, `tmc_client.py`, `tools_orders.py`, `tools_research.py`, `statement_files.py`, `payment.py` and `quotes.py`. The "Limits" section of the README states the same numbers: change both together.
 - **Secrets are named, never stored.** `distributions/accomy/distribution.yaml` lists the variable names. No
   fixture, test or document carries a value.
 

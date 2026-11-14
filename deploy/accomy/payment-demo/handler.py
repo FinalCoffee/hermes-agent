@@ -11,6 +11,14 @@ One small table remembers, per order code, whether it was PAID or VOID, so an or
 cancelled order cannot be paid. The bot voids an order when it cancels it (``POST /v/<token>``) and asks
 whether one was paid (``GET /s/<token>``), with tokens it signs for that purpose and never shows anyone.
 
+When the order's contact gave an email address, the bot also hands over the order's statement as a PDF
+(``POST /e/<token>``). The table keeps the file and the address until the order is paid, and Pay then mails
+the one to the other through Amazon SES, once, after the Telegram message has gone out, and tells the chat
+where it went. The mail holds no text of the buyer's outside the PDF: the address is one nobody confirmed. Nothing is mailed for an order that is never paid: the row
+goes when the order is cancelled, and otherwise expires with the payment link (the table then removes it by
+itself, which DynamoDB does within a few days). With no sender address configured (``STATEMENT_SENDER``) the
+page keeps nothing and sends no mail.
+
 Secrets come from SSM Parameter Store, read once per container: the key that signs links (the bot holds
 the same key) and the bot token used to send the message.
 """
@@ -21,18 +29,35 @@ import hmac
 import html
 import json
 import os
+import re
 import time
 import urllib.request
 import zlib
+from email.headerregistry import Address
+from email.message import EmailMessage
 
 import boto3
+from botocore.config import Config
 
-_SSM = boto3.client("ssm")
+# Short waits and one retry: once Pay has recorded an order as paid it must reach the Telegram message, and a
+# call that hangs for the library's default minute would end the function before it does.
+_QUICK = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 2})
+_SSM = boto3.client("ssm", config=_QUICK)
 # health: allow HX005 -- an AWS Lambda, not Hermes: its environment is this function's own configuration
-_TABLE = boto3.resource("dynamodb").Table(os.environ["STATE_TABLE"])
+_TABLE = boto3.resource("dynamodb", config=_QUICK).Table(os.environ["STATE_TABLE"])
 _SECRETS: dict[str, str] = {}
 _STATE_DAYS = 90
 _MAX_CLAIMS_BYTES = 64 * 1024
+# A statement and its address are one row of the table, which holds 400 KB. The bot holds the same number
+# (STATEMENT_MAX_BYTES in plugins/accomy_travel/payment.py) and sends nothing larger.
+_STATEMENT_BYTES = 300 * 1024
+# Narrow on purpose: the address goes into a mail header and to a mail service, so only a plain mailbox on a
+# plain host name passes. No dot at either end of the name or twice in a row, no hyphen at the edge of a label.
+# The bot holds the same pattern (_MAILBOX_RE in plugins/accomy_travel/tools_orders.py).
+_ADDRESS_RE = re.compile(
+    r"(?=[^@]{1,64}@)[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}")
+_mailer = None
 TEST_CARD = "4012000300000062"
 _HEADERS = {
     "cache-control": "no-store",
@@ -62,6 +87,9 @@ _TEXT = {
                   "event": "活動", "venue": "場地", "category": "票種", "starts_local": "開始時間（當地）",
                   "tickets": "張數", "quantity": "數量", "amount": "金額", "cancellation": "取消規定"},
         "message": "✅ 付款完成（示範）\n訂單 {code}\n{name}\n金額 {currency} {amount}\n\n這是示範付款，未實際扣款。",
+        "mail_subject": "Accomy 示範訂單 {code} 的行程單",
+        "mail_body": "訂單 {code} 的示範付款已完成：{currency} {amount}。這是示範付款，並未實際扣款。\n\n附件是這張訂單的行程單（PDF）。它是示範訂單的紀錄，不是機票、訂位確認或收據。\n\n您會收到這封信，是因為有人在 Telegram 的 Accomy AI Travel 助理下單時，把這個信箱填為聯絡方式。如果不是您本人，請直接忽略：沒有建立任何帳號，也沒有任何扣款。\n\nAccomy AI Travel",
+        "mailed": "📎 訂單 {code} 的行程單已寄到 {email}",
     },
     "zh-Hans": {
         "title": "Accomy 付款（演示）", "language": "语言",
@@ -79,6 +107,9 @@ _TEXT = {
                   "event": "活动", "venue": "场地", "category": "票种", "starts_local": "开始时间（当地）",
                   "tickets": "张数", "quantity": "数量", "amount": "金额", "cancellation": "取消规定"},
         "message": "✅ 付款完成（演示）\n订单 {code}\n{name}\n金额 {currency} {amount}\n\n这是演示付款，未实际扣款。",
+        "mail_subject": "Accomy 演示订单 {code} 的行程单",
+        "mail_body": "订单 {code} 的演示付款已完成：{currency} {amount}。这是演示付款，并未实际扣款。\n\n附件是这张订单的行程单（PDF）。它是演示订单的记录，不是机票、预订确认或收据。\n\n您会收到这封邮件，是因为有人在 Telegram 的 Accomy AI Travel 助手下单时，把这个邮箱填为联系方式。如果不是您本人，请直接忽略：没有创建任何账号，也没有任何扣款。\n\nAccomy AI Travel",
+        "mailed": "📎 订单 {code} 的行程单已发送到 {email}",
     },
     "en": {
         "title": "Accomy payment (demo)", "language": "Language",
@@ -96,6 +127,9 @@ _TEXT = {
                   "event": "Event", "venue": "Venue", "category": "Category", "starts_local": "Starts (local time)",
                   "tickets": "Tickets", "quantity": "Quantity", "amount": "Amount", "cancellation": "Cancellation"},
         "message": "✅ Payment complete (demo)\nOrder {code}\n{name}\nAmount {currency} {amount}\n\nThis was a demonstration payment: nothing was charged.",
+        "mail_subject": "Statement of your Accomy demonstration order {code}",
+        "mail_body": "The demonstration payment for order {code} went through: {currency} {amount}. It was a demonstration, and nothing was charged.\n\nThe statement and itinerary of the order is attached as a PDF. It is a record of a demonstration order, not a ticket, a booking confirmation or a receipt.\n\nYou are getting this message because this address was given as the contact for an order placed with the Accomy AI Travel assistant on Telegram. If that was not you, you can ignore it: no account was created and nothing was charged.\n\nAccomy AI Travel",
+        "mailed": "📎 The statement of order {code} was emailed to {email}",
     },
     "ja": {
         "title": "Accomy お支払い（デモ）", "language": "言語",
@@ -113,6 +147,9 @@ _TEXT = {
                   "event": "イベント", "venue": "会場", "category": "席種", "starts_local": "開始時刻（現地）",
                   "tickets": "枚数", "quantity": "数量", "amount": "金額", "cancellation": "キャンセル規定"},
         "message": "✅ お支払い完了（デモ）\n注文 {code}\n{name}\n金額 {currency} {amount}\n\nこれはデモ決済で、実際の請求は発生していません。",
+        "mail_subject": "Accomy デモ注文 {code} の明細書",
+        "mail_body": "注文 {code} のデモ決済が完了しました：{currency} {amount}。これはデモであり、実際の請求はありません。\n\nこの注文の明細書と旅程（PDF）を添付します。デモ注文の記録であり、航空券、予約確認書、領収書ではありません。\n\nこのメールは、Telegram の Accomy AI Travel アシスタントで注文の連絡先としてこのアドレスが入力されたため、自動で送信されています。お心当たりがない場合は無視してください。アカウントは作成されておらず、請求もありません。\n\nAccomy AI Travel",
+        "mailed": "📎 注文 {code} の明細書を {email} に送信しました",
     },
     "ko": {
         "title": "Accomy 결제(데모)", "language": "언어",
@@ -130,6 +167,9 @@ _TEXT = {
                   "event": "이벤트", "venue": "장소", "category": "좌석 종류", "starts_local": "시작 시간(현지)",
                   "tickets": "매수", "quantity": "수량", "amount": "금액", "cancellation": "취소 규정"},
         "message": "✅ 결제 완료(데모)\n주문 {code}\n{name}\n금액 {currency} {amount}\n\n데모 결제이며 실제로 결제되지 않았습니다.",
+        "mail_subject": "Accomy 데모 주문 {code} 명세서",
+        "mail_body": "주문 {code}의 데모 결제가 완료되었습니다: {currency} {amount}. 데모 결제이며 실제로 청구된 금액은 없습니다.\n\n이 주문의 명세서와 여정(PDF)을 첨부합니다. 데모 주문의 기록이며, 항공권, 예약 확인서 또는 영수증이 아닙니다.\n\n이 메일은 Telegram의 Accomy AI Travel 어시스턴트에서 주문 연락처로 이 주소가 입력되어 자동으로 발송되었습니다. 본인이 아니라면 무시하셔도 됩니다. 계정이 만들어지지 않았고 청구된 금액도 없습니다.\n\nAccomy AI Travel",
+        "mailed": "📎 주문 {code} 명세서를 {email}(으)로 보냈습니다",
     },
 }
 
@@ -288,6 +328,8 @@ $("form").addEventListener("submit", async (event) => {{
     const answer = await fetch(location.pathname + "?lang={language}", {{method: "POST"}});
     if (answer.status === 409) {{ location.reload(); return; }}
     if (!answer.ok) throw new Error(answer.status);
+    // Paid by an earlier press: show the page as it now stands, which claims no notice of its own.
+    if ((await answer.json()).already) {{ location.reload(); return; }}
     $("form").style.display = "none"; $("done").style.display = "block"; $("done").scrollIntoView();
   }} catch (error) {{
     $("msg").textContent = {json.dumps(text['failed'])}; $("pay").disabled = false; $("pay").textContent = {json.dumps(text['pay'] + ' ' + currency + ' ' + str(claims['amount']))};
@@ -316,6 +358,69 @@ def _json(status: int, **body) -> dict:
     return _reply(status, json.dumps(body), "application/json")
 
 
+def _statement_key(code: str) -> dict:
+    return {"code": f"{code}#statement"}  # beside the order's own row, which is keyed by the bare code
+
+
+def _keep_statement(claims: dict | None, body: bytes) -> dict:
+    """The bot hands over an order's statement and the address to mail it to once the order is paid. The token
+    signs the hash of the body, so neither the address nor the file can be changed on the way."""
+    if claims is None or not hmac.compare_digest(str(claims.get("sha")), hashlib.sha256(body).hexdigest()):
+        return _json(403, ok=False)
+    if not os.environ.get("STATEMENT_SENDER"):
+        return _json(200, state="OFF")
+    try:
+        handed = json.loads(body)
+        email, pdf, until = str(handed["email"]), base64.b64decode(handed["pdf"], validate=True), int(claims["until"])
+    except (ValueError, KeyError, TypeError):
+        return _json(400, ok=False)
+    if not _ADDRESS_RE.fullmatch(email) or not pdf.startswith(b"%PDF-") or len(pdf) > _STATEMENT_BYTES:
+        return _json(400, ok=False)
+    code = str(claims["code"])
+    if (state := _state(code)) != "UNPAID":
+        return _json(200, state=state)  # paid or cancelled already: nothing would ever mail it
+    # The row expires with the payment link, after which no Pay can mail it and the table removes it by itself.
+    _TABLE.put_item(Item={**_statement_key(code), "email": email, "pdf": pdf, "ttl": until})
+    return _json(200, state="KEPT")
+
+
+def _ses():
+    """The mail client, made when the first statement is mailed: a page view never pays for it."""
+    global _mailer
+    if _mailer is None:
+        # No retry: Pay must answer the browser within the function's own time limit.
+        _mailer = boto3.client("sesv2", config=Config(connect_timeout=3, read_timeout=6, retries={"max_attempts": 1}))
+    return _mailer
+
+
+def _mail_statement(text: dict, claims: dict) -> str | None:
+    """Mail the statement the bot left for this order, and answer the address it went to: None when there is
+    none, or when it could not be sent. Never raises: the payment stands without the mail."""
+    code = str(claims["code"])
+    try:
+        kept = _TABLE.get_item(Key=_statement_key(code), ConsistentRead=True).get("Item")
+        if not kept:
+            return None
+        _TABLE.delete_item(Key=_statement_key(code))  # first, so that the address and the file never outlive this
+        sender, email, pdf = os.environ["STATEMENT_SENDER"], str(kept["email"]), kept["pdf"]
+        message = EmailMessage()
+        message["Subject"] = text["mail_subject"].format(code=code)
+        message["From"] = Address("Accomy AI Travel", addr_spec=sender)
+        message["To"] = Address(addr_spec=email)
+        message["Auto-Submitted"] = "auto-generated"  # so that no out-of-office robot answers it
+        # The order's code and amount, and none of the buyer's words: the trip's name stays inside the PDF.
+        message.set_content(text["mail_body"].format(code=code, currency=claims["currency"], amount=claims["amount"]))
+        message.add_attachment(bytes(getattr(pdf, "value", pdf)), maintype="application", subtype="pdf",
+                               filename=f"Accomy-statement-{code}.pdf")  # the table hands bytes back wrapped
+        _ses().send_email(FromEmailAddress=sender, Destination={"ToAddresses": [email]},
+                          Content={"Raw": {"Data": bytes(message)}})
+        return email
+    # health: allow BLE001 -- the payment stands whatever the table or the mail service says
+    except Exception as error:
+        print(f"statement mail failed: {type(error).__name__}")  # never the error's text: it can hold the address
+        return None
+
+
 def _send_telegram(chat_id: str, message: str) -> None:
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{_secret('BOT_TOKEN_PARAM')}/sendMessage",
@@ -326,19 +431,28 @@ def _send_telegram(chat_id: str, message: str) -> None:
 
 
 def _pay(text: dict, claims: dict) -> dict:
-    code = str(claims["code"])
+    code, chat = str(claims["code"]), str(claims["chat"])
+    _secret("BOT_TOKEN_PARAM")  # read before the order is recorded as paid, not between that and the message
     won, state = _claim(code, "PAID")
     if not won:  # paid before (say so, and send nothing again) or cancelled
         return _json(200, ok=True, already=True) if state == "PAID" else _json(409, ok=False, state=state)
     try:
-        _send_telegram(str(claims["chat"]), text["message"].format(
+        _send_telegram(chat, text["message"].format(
             code=code, name=claims["name"], currency=claims["currency"], amount=claims["amount"]))
     # health: allow BLE001 -- any failure must leave the order payable, and a traceback would log the bot token
     except Exception as error:
-        # Never the exception itself: its URL holds the bot token. The order is payable again.
+        # Never the exception itself: its URL holds the bot token. The order is payable again, and its
+        # statement, not yet mailed, is still kept for that.
         _TABLE.delete_item(Key={"code": code})
         print(f"telegram notice failed: {type(error).__name__} {getattr(error, 'code', '')}")
         return _json(502, ok=False)
+    # Only now, so that a mail never says "paid" for a payment the page then took back.
+    if mailed_to := _mail_statement(text, claims):
+        try:
+            _send_telegram(chat, text["mailed"].format(code=code, email=mailed_to))
+        # health: allow BLE001 -- the payment and the mail both stand without this second message
+        except Exception as error:
+            print(f"statement notice failed: {type(error).__name__} {getattr(error, 'code', '')}")
     return _json(200, ok=True)
 
 
@@ -351,7 +465,14 @@ def handler(event, _context):
     key = _secret("LINK_SECRET_PARAM")
     if (route, method) == ("v", "POST"):  # the bot cancelled the order
         claims = read_token(token, key, time.time(), "void")
-        return _json(200, state=_claim(str(claims["code"]), "VOID")[1]) if claims else _json(403, ok=False)
+        if claims is None:
+            return _json(403, ok=False)
+        _TABLE.delete_item(Key=_statement_key(str(claims["code"])))  # its statement is never mailed
+        return _json(200, state=_claim(str(claims["code"]), "VOID")[1])
+    if (route, method) == ("e", "POST"):  # the bot hands over the statement to mail when the order is paid
+        body = event.get("body") or ""
+        return _keep_statement(read_token(token, key, time.time(), "statement"),
+                               base64.b64decode(body) if event.get("isBase64Encoded") else body.encode())
     if (route, method) == ("s", "GET"):  # the bot asks whether the order was paid
         claims = read_token(token, key, time.time(), "status")
         return _json(200, state=_state(str(claims["code"]))) if claims else _json(403, ok=False)

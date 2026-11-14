@@ -82,6 +82,16 @@ RUN apt-get -o Acquire::Retries=3 update && \
     libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 && \
     rm -rf /var/lib/apt/lists/*
 
+# The Accomy fork: one font that holds Chinese, Japanese and Korean, for the PDF statements that
+# plugins/accomy_travel/statement_pdf.py draws. reportlab embeds TrueType outlines only, which rules
+# out fonts-noto-cjk. A step of its own, so that the package list above stays upstream's. The plugin
+# names the file by its path (WIDE_FONT_FILES), and without it a statement silently loses every
+# character beyond Latin: the build stops if the package ever puts the file elsewhere.
+RUN apt-get -o Acquire::Retries=3 update && \
+    apt-get -o Acquire::Retries=3 install -y --no-install-recommends fonts-wqy-microhei && \
+    rm -rf /var/lib/apt/lists/* && \
+    test -f /usr/share/fonts/truetype/wqy/wqy-microhei.ttc
+
 # Bot Screen (opt-in): PACKAGES["apt"] from tools/bot_desktop/runtime.py plus apt
 # `chromium` for the restricted-userns sandbox fallback. PM already stages
 # pinned full Chromium for both variants; no separate Playwright install.

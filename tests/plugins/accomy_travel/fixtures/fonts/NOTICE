@@ -1,0 +1,7 @@
+wqy-microhei-subset.ttf holds 28 characters of WenQuanYi Micro Hei 0.2.0-beta, cut out with fontTools'
+pyftsubset for test_statement_pdf.py. It is not the whole font and is of no use outside the tests.
+
+WenQuanYi Micro Hei: Copyright 2008-2009 The WenQuanYi Project Board of Trustees; based on the Google Droid
+font family, Copyright 2006-2008 Google Corporation and Ascender Corp. Licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), or the GNU General Public License version 3 or
+later with the font embedding exception.

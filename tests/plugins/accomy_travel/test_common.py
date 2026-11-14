@@ -132,6 +132,22 @@ def test_seat_unique_host_budget_refuses_the_101st_request_without_a_call(monkey
     assert len(wire.urls) == 101
 
 
+def test_a_request_with_a_budget_of_its_own_is_not_crowded_out_by_the_hosts_other_traffic(monkeypatch):
+    clock = _Clock()
+    _fresh_supplier_budget(monkeypatch, clock)
+    wire = _Wire()
+    monkeypatch.setattr(_common.httpx, "request", wire)
+    per_minute = _common.DEFAULT_SUPPLIER_BUDGET[0]
+    for _ in range(per_minute):
+        _common.request_json("GET", "https://pay.example/s/lookup")
+    with pytest.raises(_common.ApiError):
+        _common.request_json("GET", "https://pay.example/s/lookup")
+
+    _common.request_json("POST", "https://pay.example/v/cancel", budget_key="pay.example:void")
+
+    assert wire.urls[-1] == "https://pay.example/v/cancel" and len(wire.urls) == per_minute + 1
+
+
 def test_supplier_daily_budget_is_per_host_and_shared_by_every_caller(monkeypatch):
     clock = _Clock()
     _fresh_supplier_budget(monkeypatch, clock)
